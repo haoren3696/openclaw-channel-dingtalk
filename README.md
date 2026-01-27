@@ -13,9 +13,32 @@
 
 ## 安装
 
+### 方法 A：通过远程仓库安装 (推荐)
+
+直接运行 Clawdbot 插件安装命令，Clawdbot 会自动处理下载、安装依赖和注册：
+
 ```bash
-clawdbot plugins install ~/clawd/extensions/dingtalk-channel
+clawdbot plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
 ```
+
+### 方法 B：通过本地源码安装
+
+如果你想对插件进行二次开发，可以先克隆仓库：
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
+cd clawdbot-channel-dingtalk
+
+# 2. 以链接模式安装 (方便修改代码后实时生效)
+clawdbot plugins install -l .
+```
+
+### 方法 C：手动安装
+
+1. 将本目录下载或复制到 `~/.clawdbot/extensions/dingtalk`。
+2. 确保包含 `plugin.ts`, `clawdbot.plugin.json` 和 `package.json`。
+3. 运行 `clawdbot plugins list` 确认 `dingtalk` 已显示在列表中。
 
 ## 配置
 
