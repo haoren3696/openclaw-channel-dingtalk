@@ -1,4 +1,4 @@
-# DingTalk Channel for OpenClaw 
+# DingTalk Channel for OpenClaw
 
 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。
 
@@ -8,6 +8,7 @@
 - ✅ **私聊支持** — 直接与机器人对话
 - ✅ **群聊支持** — 在群里 @机器人
 - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件
+- ✅ **文件发送** — 支持发送各类文件（文档、图片、音视频等）
 - ✅ **Markdown 回复** — 支持富文本格式回复
 - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出
 - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道
@@ -67,6 +68,7 @@ openclaw plugins install -l .
 ### 3. 配置 Clawdbot
 
 在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
+
 > 只添加dingtalk部分，内容自己替换
 
 ```json5
@@ -83,8 +85,8 @@ openclaw plugins install -l .
       "corpId": "dingxxxxxx",
       "agentId": "123456789",
       "dmPolicy": "open",
-      "groupPolicy": "open",      
-      "messageType": "markdown",       
+      "groupPolicy": "open",
+      "messageType": "markdown",
       "debug": false
     }
   },
@@ -100,22 +102,22 @@ openclaw gateway restart
 
 ## 配置选项
 
-| 选项               | 类型     | 默认值                                                          | 说明                                      |
-| ------------------ | -------- | --------------------------------------------------------------- | ----------------------------------------- |
-| `enabled`          | boolean  | `true`                                                          | 是否启用                                  |
-| `clientId`         | string   | 必填                                                            | 应用的 AppKey                             |
-| `clientSecret`     | string   | 必填                                                            | 应用的 AppSecret                          |
-| `robotCode`        | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |
-| `corpId`           | string   | -                                                               | 企业 ID                                   |
-| `agentId`          | string   | -                                                               | 应用 ID                                   |
-| `dmPolicy`         | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |
-| `groupPolicy`      | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
-| `allowFrom`        | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
-| `messageType`      | string   | `"markdown"`                                                    | 消息类型：text/markdown/card              |
-| `cardTemplateId`   | string   | `"StandardCard"`                                                | 互动卡片模板 ID（仅当 messageType=card）  |
-| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）            |
-| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`   | 自定义卡片更新 API URL（可选）            |
-| `debug`            | boolean  | `false`                                                         | 是否开启调试日志                          |
+| 选项               | 类型     | 默认值                                                                | 说明                                     |
+| ------------------ | -------- | --------------------------------------------------------------------- | ---------------------------------------- |
+| `enabled`          | boolean  | `true`                                                                | 是否启用                                 |
+| `clientId`         | string   | 必填                                                                  | 应用的 AppKey                            |
+| `clientSecret`     | string   | 必填                                                                  | 应用的 AppSecret                         |
+| `robotCode`        | string   | -                                                                     | 机器人代码（用于下载媒体和发送卡片）     |
+| `corpId`           | string   | -                                                                     | 企业 ID                                  |
+| `agentId`          | string   | -                                                                     | 应用 ID                                  |
+| `dmPolicy`         | string   | `"open"`                                                              | 私聊策略：open/pairing/allowlist         |
+| `groupPolicy`      | string   | `"open"`                                                              | 群聊策略：open/allowlist                 |
+| `allowFrom`        | string[] | `[]`                                                                  | 允许的发送者 ID 列表                     |
+| `messageType`      | string   | `"markdown"`                                                          | 消息类型：text/markdown/card             |
+| `cardTemplateId`   | string   | `"StandardCard"`                                                      | 互动卡片模板 ID（仅当 messageType=card） |
+| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）           |
+| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`          | 自定义卡片更新 API URL（可选）           |
+| `debug`            | boolean  | `false`                                                               | 是否开启调试日志                         |
 
 ## 安全策略
 
@@ -145,28 +147,34 @@ openclaw gateway restart
 
 ### 发送
 
-| 类型         | 支持 | 说明                                       |
-| ------------ | ---- | ------------------------------------------ |
-| 文本         | ✅   | 完整支持                                   |
-| Markdown     | ✅   | 自动检测或手动指定                         |
-| 互动卡片     | ✅   | 支持流式更新，适用于 AI 实时输出           |
-| 图片         | ⏳   | 需要通过媒体上传 API                       |
+| 类型     | 支持 | 说明                                     |
+| -------- | ---- | ---------------------------------------- |
+| 文本     | ✅   | 完整支持                                 |
+| Markdown | ✅   | 自动检测或手动指定                       |
+| 互动卡片 | ✅   | 支持流式更新，适用于 AI 实时输出         |
+| 文件     | ✅   | 支持发送各类文件（文档、图片、音视频等） |
+| 图片     | ✅   | 通过媒体上传 API 发送                    |
+| 音频     | ✅   | 通过媒体上传 API 发送                    |
+| 视频     | ✅   | 通过媒体上传 API 发送                    |
 
 ## 消息类型选择
 
 插件支持三种消息回复类型，可通过 `messageType` 配置：
 
 ### 1. text（纯文本）
+
 - 基础文本消息
 - 适用于简单回复
 - 无格式化支持
 
 ### 2. markdown（Markdown 格式）**【默认】**
+
 - 支持富文本格式（标题、粗体、列表等）
 - 自动检测消息是否包含 Markdown 语法
 - 适用于大多数场景
 
 ### 3. card（互动卡片）**【推荐用于 AI 对话】**
+
 - 支持流式更新（实时显示 AI 生成内容）
 - 更好的视觉呈现
 - 支持自定义卡片模板
@@ -174,11 +182,13 @@ openclaw gateway restart
 
 **流式更新示例：**
 当配置 `messageType: 'card'` 时，机器人会：
+
 1. 发送初始卡片显示"正在思考中..."
 2. AI 生成回复时，实时更新卡片内容
 3. 用户可以看到回复逐步生成的过程
 
 **流式更新优化：**
+
 - 自动节流：最小 500ms 更新间隔，避免 API 限流
 - 超时检测：3 秒无更新自动视为完成
 - 错误处理：遇到 404/410 错误自动清理缓存
@@ -191,6 +201,48 @@ openclaw gateway restart
   cardSendApiUrl: 'https://api.dingtalk.com/...', // 可选：自定义 API
 }
 ```
+
+## 文件发送
+
+插件支持发送各种类型的文件，包括文档、图片、音频和视频。
+
+### 发送文件的方法
+
+#### 1. 通过 Outbound API 发送
+
+```bash
+openclaw outbound send --channel dingtalk --to <conversationId> --media /path/to/file.pdf
+```
+
+#### 2. 使用插件 API 发送
+
+```typescript
+import { uploadMedia, sendFileMessage, sendBySession } from '@openclaw/dingtalk';
+
+// 主动发送文件
+await sendFileMessage(config, conversationId, '/path/to/file.pdf');
+
+// 在对话中发送文件（回复）
+await sendBySession(config, sessionWebhook, '这是您请求的文件', '/path/to/file.pdf');
+
+// 只上传文件获取 mediaId
+const uploadResult = await uploadMedia(config, '/path/to/image.png', 'image');
+```
+
+#### 3. 通过 OpenClaw 消息处理发送
+
+当 AI 生成需要发送文件的内容时，OpenClaw 会自动处理文件发送。
+
+### 支持的文件类型
+
+- **file**: 普通文件（文档、压缩包等）
+- **image**: 图片文件（jpg, png, gif 等）
+- **audio**: 音频文件（mp3, wav 等）
+- **video**: 视频文件（mp4, avi 等）
+
+### 文件发送示例
+
+查看 [examples/file-sending-examples.ts](examples/file-sending-examples.ts) 获取更多示例代码。
 
 ## 使用示例
 
@@ -281,6 +333,12 @@ DingTalkInboundMessage; // 收到的钉钉消息
 MessageContent; // 解析后的消息内容
 HandleDingTalkMessageParams; // 消息处理参数
 
+// 媒体文件
+MediaFile; // 下载的媒体文件
+MediaUploadResponse; // 上传媒体文件的响应
+FileMessageContent; // 文件消息内容
+FileMessageWebhookResponse; // 文件消息 webhook 响应
+
 // 互动卡片
 InteractiveCardData; // 卡片数据结构
 InteractiveCardSendRequest; // 发送卡片请求
@@ -290,7 +348,7 @@ CardInstance; // 卡片实例（用于缓存）
 // 工具函数类型
 Logger; // 日志接口
 RetryOptions; // 重试选项
-MediaFile; // 下载的媒体文件
+SendMessageOptions; // 发送消息选项
 ```
 
 ### 公开 API
@@ -300,7 +358,12 @@ MediaFile; // 下载的媒体文件
 ```typescript
 // 文本/Markdown 消息
 sendBySession(config, sessionWebhook, text, options); // 通过会话发送
+sendBySession(config, sessionWebhook, text, mediaPath, options); // 发送文件
 sendProactiveMessage(config, target, text, options); // 主动发送消息
+
+// 文件发送
+sendFileMessage(config, target, mediaPath, log); // 发送文件消息
+uploadMedia(config, mediaPath, mediaType, log); // 上传文件获取 mediaId
 
 // 互动卡片（流式更新）
 sendInteractiveCard(config, conversationId, text, options); // 发送卡片
@@ -316,7 +379,7 @@ getAccessToken(config, log); // 获取访问令牌
 **使用示例：**
 
 ```typescript
-import { sendInteractiveCard, updateInteractiveCard } from './src/channel';
+import { sendInteractiveCard, updateInteractiveCard, sendFileMessage, uploadMedia } from './src/channel';
 
 // 发送初始卡片
 const { cardBizId } = await sendInteractiveCard(config, conversationId, '正在生成...', {
@@ -327,6 +390,13 @@ const { cardBizId } = await sendInteractiveCard(config, conversationId, '正在�
 for (const chunk of aiResponseChunks) {
   await updateInteractiveCard(config, cardBizId, currentText + chunk, { log });
 }
+
+// 发送文件消息
+await sendFileMessage(config, conversationId, '/path/to/file.pdf');
+
+// 上传文件获取 mediaId
+const uploadResult = await uploadMedia(config, '/path/to/image.png', 'image');
+console.log('mediaId:', uploadResult.mediaId);
 ```
 
 ### 架构

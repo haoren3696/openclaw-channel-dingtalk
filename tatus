@@ -1,0 +1,1330 @@
+[1mdiff --git a/README.md b/README.md[m
+[1mindex fe00755..9dc5dc2 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -1,4 +1,4 @@[m
+[31m-# DingTalk Channel for OpenClaw [m
+[32m+[m[32m# DingTalk Channel for OpenClaw[m
+ [m
+ 钉钉企业内部机器人 Channel 插件，使用 Stream 模式（无需公网 IP）。[m
+ [m
+[36m@@ -8,6 +8,7 @@[m
+ - ✅ **私聊支持** — 直接与机器人对话[m
+ - ✅ **群聊支持** — 在群里 @机器人[m
+ - ✅ **多种消息类型** — 文本、图片、语音（自带识别）、视频、文件[m
+[32m+[m[32m- ✅ **文件发送** — 支持发送各类文件（文档、图片、音视频等）[m
+ - ✅ **Markdown 回复** — 支持富文本格式回复[m
+ - ✅ **互动卡片** — 支持流式更新，适用于 AI 实时输出[m
+ - ✅ **完整 AI 对话** — 接入 Clawdbot 消息处理管道[m
+[36m@@ -67,6 +68,7 @@[m [mopenclaw plugins install -l .[m
+ ### 3. 配置 Clawdbot[m
+ [m
+ 在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：[m
+[32m+[m
+ > 只添加dingtalk部分，内容自己替换[m
+ [m
+ ```json5[m
+[36m@@ -83,8 +85,8 @@[m [mopenclaw plugins install -l .[m
+       "corpId": "dingxxxxxx",[m
+       "agentId": "123456789",[m
+       "dmPolicy": "open",[m
+[31m-      "groupPolicy": "open",      [m
+[31m-      "messageType": "markdown",       [m
+[32m+[m[32m      "groupPolicy": "open",[m
+[32m+[m[32m      "messageType": "markdown",[m
+       "debug": false[m
+     }[m
+   },[m
+[36m@@ -100,22 +102,22 @@[m [mopenclaw gateway restart[m
+ [m
+ ## 配置选项[m
+ [m
+[31m-| 选项               | 类型     | 默认值                                                          | 说明                                      |[m
+[31m-| ------------------ | -------- | --------------------------------------------------------------- | ----------------------------------------- |[m
+[31m-| `enabled`          | boolean  | `true`                                                          | 是否启用                                  |[m
+[31m-| `clientId`         | string   | 必填                                                            | 应用的 AppKey                             |[m
+[31m-| `clientSecret`     | string   | 必填                                                            | 应用的 AppSecret                          |[m
+[31m-| `robotCode`        | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |[m
+[31m-| `corpId`           | string   | -                                                               | 企业 ID                                   |[m
+[31m-| `agentId`          | string   | -                                                               | 应用 ID                                   |[m
+[31m-| `dmPolicy`         | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |[m
+[31m-| `groupPolicy`      | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |[m
+[31m-| `allowFrom`        | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |[m
+[31m-| `messageType`      | string   | `"markdown"`                                                    | 消息类型：text/markdown/card              |[m
+[31m-| `cardTemplateId`   | string   | `"StandardCard"`                                                | 互动卡片模板 ID（仅当 messageType=card）  |[m
+[31m-| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）            |[m
+[31m-| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`   | 自定义卡片更新 API URL（可选）            |[m
+[31m-| `debug`            | boolean  | `false`                                                         | 是否开启调试日志                          |[m
+[32m+[m[32m| 选项               | 类型     | 默认值                                                                | 说明                                     |[m
+[32m+[m[32m| ------------------ | -------- | --------------------------------------------------------------------- | ---------------------------------------- |[m
+[32m+[m[32m| `enabled`          | boolean  | `true`                                                                | 是否启用                                 |[m
+[32m+[m[32m| `clientId`         | string   | 必填                                                                  | 应用的 AppKey                            |[m
+[32m+[m[32m| `clientSecret`     | string   | 必填                                                                  | 应用的 AppSecret                         |[m
+[32m+[m[32m| `robotCode`        | string   | -                                                                     | 机器人代码（用于下载媒体和发送卡片）     |[m
+[32m+[m[32m| `corpId`           | string   | -                                                                     | 企业 ID                                  |[m
+[32m+[m[32m| `agentId`          | string   | -                                                                     | 应用 ID                                  |[m
+[32m+[m[32m| `dmPolicy`         | string   | `"open"`                                                              | 私聊策略：open/pairing/allowlist         |[m
+[32m+[m[32m| `groupPolicy`      | string   | `"open"`                                                              | 群聊策略：open/allowlist                 |[m
+[32m+[m[32m| `allowFrom`        | string[] | `[]`                                                                  | 允许的发送者 ID 列表                     |[m
+[32m+[m[32m| `messageType`      | string   | `"markdown"`                                                          | 消息类型：text/markdown/card             |[m
+[32m+[m[32m| `cardTemplateId`   | string   | `"StandardCard"`                                                      | 互动卡片模板 ID（仅当 messageType=card） |[m
+[32m+[m[32m| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）           |[m
+[32m+[m[32m| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`          | 自定义卡片更新 API URL（可选）           |[m
+[32m+[m[32m| `debug`            | boolean  | `false`                                                               | 是否开启调试日志                         |[m
+ [m
+ ## 安全策略[m
+ [m
+[36m@@ -145,28 +147,34 @@[m [mopenclaw gateway restart[m
+ [m
+ ### 发送[m
+ [m
+[31m-| 类型         | 支持 | 说明                                       |[m
+[31m-| ------------ | ---- | ------------------------------------------ |[m
+[31m-| 文本         | ✅   | 完整支持                                   |[m
+[31m-| Markdown     | ✅   | 自动检测或手动指定                         |[m
+[31m-| 互动卡片     | ✅   | 支持流式更新，适用于 AI 实时输出           |[m
+[31m-| 图片         | ⏳   | 需要通过媒体上传 API                       |[m
+[32m+[m[32m| 类型     | 支持 | 说明                                     |[m
+[32m+[m[32m| -------- | ---- | ---------------------------------------- |[m
+[32m+[m[32m| 文本     | ✅   | 完整支持                                 |[m
+[32m+[m[32m| Markdown | ✅   | 自动检测或手动指定                       |[m
+[32m+[m[32m| 互动卡片 | ✅   | 支持流式更新，适用于 AI 实时输出         |[m
+[32m+[m[32m| 文件     | ✅   | 支持发送各类文件（文档、图片、音视频等） |[m
+[32m+[m[32m| 图片     | ✅   | 通过媒体上传 API 发送                    |[m
+[32m+[m[32m| 音频     | ✅   | 通过媒体上传 API 发送                    |[m
+[32m+[m[32m| 视频     | ✅   | 通过媒体上传 API 发送                    |[m
+ [m
+ ## 消息类型选择[m
+ [m
+ 插件支持三种消息回复类型，可通过 `messageType` 配置：[m
+ [m
+ ### 1. text（纯文本）[m
+[32m+[m
+ - 基础文本消息[m
+ - 适用于简单回复[m
+ - 无格式化支持[m
+ [m
+ ### 2. markdown（Markdown 格式）**【默认】**[m
+[32m+[m
+ - 支持富文本格式（标题、粗体、列表等）[m
+ - 自动检测消息是否包含 Markdown 语法[m
+ - 适用于大多数场景[m
+ [m
+ ### 3. card（互动卡片）**【推荐用于 AI 对话】**[m
+[32m+[m
+ - 支持流式更新（实时显示 AI 生成内容）[m
+ - 更好的视觉呈现[m
+ - 支持自定义卡片模板[m
+[36m@@ -174,11 +182,13 @@[m [mopenclaw gateway restart[m
+ [m
+ **流式更新示例：**[m
+ 当配置 `messageType: 'card'` 时，机器人会：[m
+[32m+[m
+ 1. 发送初始卡片显示"正在思考中..."[m
+ 2. AI 生成回复时，实时更新卡片内容[m
+ 3. 用户可以看到回复逐步生成的过程[m
+ [m
+ **流式更新优化：**[m
+[32m+[m
+ - 自动节流：最小 500ms 更新间隔，避免 API 限流[m
+ - 超时检测：3 秒无更新自动视为完成[m
+ - 错误处理：遇到 404/410 错误自动清理缓存[m
+[36m@@ -192,6 +202,48 @@[m [mopenclaw gateway restart[m
+ }[m
+ ```[m
+ [m
+[32m+[m[32m## 文件发送[m
+[32m+[m
+[32m+[m[32m插件支持发送各种类型的文件，包括文档、图片、音频和视频。[m
+[32m+[m
+[32m+[m[32m### 发送文件的方法[m
+[32m+[m
+[32m+[m[32m#### 1. 通过 Outbound API 发送[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32mopenclaw outbound send --channel dingtalk --to <conversationId> --media /path/to/file.pdf[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m#### 2. 使用插件 API 发送[m
+[32m+[m
+[32m+[m[32m```typescript[m
+[32m+[m[32mimport { uploadMedia, sendFileMessage, sendBySession } from '@openclaw/dingtalk';[m
+[32m+[m
+[32m+[m[32m// 主动发送文件[m
+[32m+[m[32mawait sendFileMessage(config, conversationId, '/path/to/file.pdf');[m
+[32m+[m
+[32m+[m[32m// 在对话中发送文件（回复）[m
+[32m+[m[32mawait sendBySession(config, sessionWebhook, '这是您请求的文件', '/path/to/file.pdf');[m
+[32m+[m
+[32m+[m[32m// 只上传文件获取 mediaId[m
+[32m+[m[32mconst uploadResult = await uploadMedia(config, '/path/to/image.png', 'image');[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m#### 3. 通过 OpenClaw 消息处理发送[m
+[32m+[m
+[32m+[m[32m当 AI 生成需要发送文件的内容时，OpenClaw 会自动处理文件发送。[m
+[32m+[m
+[32m+[m[32m### 支持的文件类型[m
+[32m+[m
+[32m+[m[32m- **file**: 普通文件（文档、压缩包等）[m
+[32m+[m[32m- **image**: 图片文件（jpg, png, gif 等）[m
+[32m+[m[32m- **audio**: 音频文件（mp3, wav 等）[m
+[32m+[m[32m- **video**: 视频文件（mp4, avi 等）[m
+[32m+[m
+[32m+[m[32m### 文件发送示例[m
+[32m+[m
+[32m+[m[32m查看 [examples/file-sending-examples.ts](examples/file-sending-examples.ts) 获取更多示例代码。[m
+[32m+[m
+ ## 使用示例[m
+ [m
+ 配置完成后，直接在钉钉中：[m
+[36m@@ -281,6 +333,12 @@[m [mDingTalkInboundMessage; // 收到的钉钉消息[m
+ MessageContent; // 解析后的消息内容[m
+ HandleDingTalkMessageParams; // 消息处理参数[m
+ [m
+[32m+[m[32m// 媒体文件[m
+[32m+[m[32mMediaFile; // 下载的媒体文件[m
+[32m+[m[32mMediaUploadResponse; // 上传媒体文件的响应[m
+[32m+[m[32mFileMessageContent; // 文件消息内容[m
+[32m+[m[32mFileMessageWebhookResponse; // 文件消息 webhook 响应[m
+[32m+[m
+ // 互动卡片[m
+ InteractiveCardData; // 卡片数据结构[m
+ InteractiveCardSendRequest; // 发送卡片请求[m
+[36m@@ -290,7 +348,7 @@[m [mCardInstance; // 卡片实例（用于缓存）[m
+ // 工具函数类型[m
+ Logger; // 日志接口[m
+ RetryOptions; // 重试选项[m
+[31m-MediaFile; // 下载的媒体文件[m
+[32m+[m[32mSendMessageOptions; // 发送消息选项[m
+ ```[m
+ [m
+ ### 公开 API[m
+[36m@@ -300,8 +358,13 @@[m [mMediaFile; // 下载的媒体文件[m
+ ```typescript[m
+ // 文本/Markdown 消息[m
+ sendBySession(config, sessionWebhook, text, options); // 通过会话发送[m
+[32m+[m[32msendBySession(config, sessionWebhook, text, mediaPath, options); // 发送文件[m
+ sendProactiveMessage(config, target, text, options); // 主动发送消息[m
+ [m
+[32m+[m[32m// 文件发送[m
+[32m+[m[32msendFileMessage(config, target, mediaPath, log); // 发送文件消息[m
+[32m+[m[32muploadMedia(config, mediaPath, mediaType, log); // 上传文件获取 mediaId[m
+[32m+[m
+ // 互动卡片（流式更新）[m
+ sendInteractiveCard(config, conversationId, text, options); // 发送卡片[m
+ updateInteractiveCard(config, cardBizId, text, options); // 更新卡片[m
+[36m@@ -316,7 +379,7 @@[m [mgetAccessToken(config, log); // 获取访问令牌[m
+ **使用示例：**[m
+ [m
+ ```typescript[m
+[31m-import { sendInteractiveCard, updateInteractiveCard } from './src/channel';[m
+[32m+[m[32mimport { sendInteractiveCard, updateInteractiveCard, sendFileMessage, uploadMedia } from './src/channel';[m
+ [m
+ // 发送初始卡片[m
+ const { cardBizId } = await sendInteractiveCard(config, conversationId, '正在生成...', {[m
+[36m@@ -327,6 +390,13 @@[m [mconst { cardBizId } = await sendInteractiveCard(config, conversationId, '正在[m
+ for (const chunk of aiResponseChunks) {[m
+   await updateInteractiveCard(config, cardBizId, currentText + chunk, { log });[m
+ }[m
+[32m+[m
+[32m+[m[32m// 发送文件消息[m
+[32m+[m[32mawait sendFileMessage(config, conversationId, '/path/to/file.pdf');[m
+[32m+[m
+[32m+[m[32m// 上传文件获取 mediaId[m
+[32m+[m[32mconst uploadResult = await uploadMedia(config, '/path/to/image.png', 'image');[m
+[32m+[m[32mconsole.log('mediaId:', uploadResult.mediaId);[m
+ ```[m
+ [m
+ ### 架构[m
+[1mdiff --git a/package.json b/package.json[m
+[1mindex c64ebbc..9fb1859 100644[m
+[1m--- a/package.json[m
+[1m+++ b/package.json[m
+[36m@@ -23,6 +23,7 @@[m
+   "dependencies": {[m
+     "axios": "^1.6.0",[m
+     "dingtalk-stream": "^2.1.4",[m
+[32m+[m[32m    "form-data": "^4.0.0",[m
+     "zod": "^4.3.6"[m
+   },[m
+   "devDependencies": {[m
+[36m@@ -88,4 +89,4 @@[m
+       "defaultChoice": "local"[m
+     }[m
+   }[m
+[31m-}[m
+\ No newline at end of file[m
+[32m+[m[32m}[m
+[1mdiff --git a/src/channel.ts b/src/channel.ts[m
+[1mindex 8308c45..9439f89 100644[m
+[1m--- a/src/channel.ts[m
+[1m+++ b/src/channel.ts[m
+[36m@@ -4,6 +4,7 @@[m [mimport * as fs from 'node:fs';[m
+ import * as path from 'node:path';[m
+ import * as os from 'node:os';[m
+ import { randomUUID } from 'node:crypto';[m
+[32m+[m[32mimport FormData from 'form-data';[m
+ import type { OpenClawConfig } from 'openclaw/plugin-sdk';[m
+ import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';[m
+ import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';[m
+[36m@@ -27,6 +28,8 @@[m [mimport type {[m
+   InteractiveCardSendRequest,[m
+   InteractiveCardUpdateRequest,[m
+   CardInstance,[m
+[32m+[m[32m  MediaUploadResponse,[m
+[32m+[m[32m  FileMessageWebhookResponse,[m
+ } from './types';[m
+ [m
+ // Access Token cache[m
+[36m@@ -76,10 +79,7 @@[m [mfunction normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {[m
+ /**[m
+  * Check if sender is allowed based on allowFrom list[m
+  */[m
+[31m-function isSenderAllowed(params: {[m
+[31m-  allow: NormalizedAllowFrom;[m
+[31m-  senderId?: string;[m
+[31m-}): boolean {[m
+[32m+[m[32mfunction isSenderAllowed(params: { allow: NormalizedAllowFrom; senderId?: string }): boolean {[m
+   const { allow, senderId } = params;[m
+   if (!allow.hasEntries) return true;[m
+   if (allow.hasWildcard) return true;[m
+[36m@@ -160,9 +160,13 @@[m [mfunction isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {[m
+ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {[m
+   const now = Date.now();[m
+   if (accessToken && accessTokenExpiry > now + 60000) {[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Using cached access token (expires at: ${new Date(accessTokenExpiry).toISOString()})`);[m
+     return accessToken;[m
+   }[m
+ [m
+[32m+[m[32m  log?.info?.(`[DingTalk] Requesting new access token - clientId: ${config.clientId?.substring(0, 8)}...`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Access token URL: https://api.dingtalk.com/v1.0/oauth2/accessToken`);[m
+[32m+[m
+   const token = await retryWithBackoff([m
+     async () => {[m
+       const response = await axios.post<TokenInfo>('https://api.dingtalk.com/v1.0/oauth2/accessToken', {[m
+[36m@@ -170,8 +174,12 @@[m [masync function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str[m
+         appSecret: config.clientSecret,[m
+       });[m
+ [m
+[32m+[m[32m      log?.debug?.(`[DingTalk] Access token response - expireIn: ${response.data.expireIn} seconds`);[m
+[32m+[m
+       accessToken = response.data.accessToken;[m
+       accessTokenExpiry = now + response.data.expireIn * 1000;[m
+[32m+[m[32m      log?.info?.(`[DingTalk] New access token obtained, expires at: ${new Date(accessTokenExpiry).toISOString()}`);[m
+[32m+[m
+       return accessToken;[m
+     },[m
+     { maxRetries: 3, log }[m
+[36m@@ -284,6 +292,138 @@[m [masync function downloadMedia(config: DingTalkConfig, downloadCode: string, log?:[m
+   }[m
+ }[m
+ [m
+[32m+[m[32m// Upload media file to DingTalk[m
+[32m+[m[32masync function uploadMedia([m
+[32m+[m[32m  config: DingTalkConfig,[m
+[32m+[m[32m  mediaPath: string,[m
+[32m+[m[32m  mediaType: string = 'file',[m
+[32m+[m[32m  log?: Logger[m
+[32m+[m[32m): Promise<MediaUploadResponse | null> {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const fileName = path.basename(mediaPath);[m
+[32m+[m[32m    const fileExt = fileName.split('.').pop()?.toLowerCase() || '';[m
+[32m+[m
+[32m+[m[32m    let finalMediaType = mediaType;[m
+[32m+[m
+[32m+[m[32m    if (mediaType === 'file') {[m
+[32m+[m[32m      const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp'];[m
+[32m+[m[32m      const voiceExts = ['amr', 'mp3', 'wav'];[m
+[32m+[m[32m      const videoExts = ['mp4'];[m
+[32m+[m[32m      const fileExts = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'pdf', 'rar'];[m
+[32m+[m
+[32m+[m[32m      if (imageExts.includes(fileExt)) {[m
+[32m+[m[32m        finalMediaType = 'image';[m
+[32m+[m[32m      } else if (voiceExts.includes(fileExt)) {[m
+[32m+[m[32m        finalMediaType = 'voice';[m
+[32m+[m[32m      } else if (videoExts.includes(fileExt)) {[m
+[32m+[m[32m        finalMediaType = 'video';[m
+[32m+[m[32m      } else if (fileExts.includes(fileExt)) {[m
+[32m+[m[32m        finalMediaType = 'file';[m
+[32m+[m[32m      } else {[m
+[32m+[m[32m        finalMediaType = 'file';[m
+[32m+[m[32m      }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    log?.debug?.([m
+[32m+[m[32m      `[DingTalk] uploadMedia called - mediaPath: ${mediaPath}, mediaType: ${mediaType}, finalMediaType: ${finalMediaType}, fileExt: ${fileExt}`[m
+[32m+[m[32m    );[m
+[32m+[m
+[32m+[m[32m    const token = await getAccessToken(config, log);[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Access token obtained for media upload`);[m
+[32m+[m
+[32m+[m[32m    if (!fs.existsSync(mediaPath)) {[m
+[32m+[m[32m      if (log?.error) {[m
+[32m+[m[32m        log.error(`[DingTalk] File not found: ${mediaPath}`);[m
+[32m+[m[32m      }[m
+[32m+[m[32m      return null;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] File exists: ${mediaPath}`);[m
+[32m+[m
+[32m+[m[32m    const fileStats = fs.statSync(mediaPath);[m
+[32m+[m[32m    const fileSize = fileStats.size;[m
+[32m+[m
+[32m+[m[32m    // 文件大小限制检查（根据钉钉API最新规范：2025年）[m
+[32m+[m[32m    const sizeLimits: Record<string, number> = {[m
+[32m+[m[32m      image: 2 * 1024 * 1024, // 2MB[m
+[32m+[m[32m      voice: 2 * 1024 * 1024, // 2MB[m
+[32m+[m[32m      video: 100 * 1024 * 1024, // 100MB[m
+[32m+[m[32m      file: 20 * 1024 * 1024, // 20MB[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    const limit = sizeLimits[finalMediaType] || 20 * 1024 * 1024;[m
+[32m+[m[32m    if (fileSize > limit) {[m
+[32m+[m[32m      log?.error?.(`[DingTalk] File size ${fileSize} bytes exceeds limit ${limit} bytes for type ${finalMediaType}`);[m
+[32m+[m[32m      return null;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] File stats - fileName: ${fileName}, fileSize: ${fileSize} bytes, limit: ${limit} bytes`);[m
+[32m+[m
+[32m+[m[32m    // 钉钉最新API规范：使用 FormData 上传，字段名必须是 'media'[m
+[32m+[m[32m    const formData = new FormData();[m
+[32m+[m[32m    formData.append('media', fs.createReadStream(mediaPath), {[m
+[32m+[m[32m      filename: fileName,[m
+[32m+[m[32m      contentType: 'application/octet-stream',[m
+[32m+[m[32m    } as any);[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] FormData created with media field`);[m
+[32m+[m
+[32m+[m[32m    // 钉钉最新API规范（2025年）：[m
+[32m+[m[32m    // - 使用 oapi.dingtalk.com 域名[m
+[32m+[m[32m    // - access_token 和 type 都在 query string 中[m
+[32m+[m[32m    // - 不要手动设置 Content-Type，让 axios 自动生成 boundary[m
+[32m+[m[32m    const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${finalMediaType}`;[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Starting upload to: https://oapi.dingtalk.com/media/upload [with query params]`);[m
+[32m+[m
+[32m+[m[32m    const response = await axios.post<{[m
+[32m+[m[32m      media_id?: string;[m
+[32m+[m[32m      errcode?: number;[m
+[32m+[m[32m      errmsg?: string;[m
+[32m+[m[32m      type?: string;[m
+[32m+[m[32m      created_at?: number;[m
+[32m+[m[32m    }>(uploadUrl, formData, {[m
+[32m+[m[32m      // 不要手动设置 headers，让 axios 根据 FormData 自动生成 multipart/form-data 和 boundary[m
+[32m+[m[32m      maxBodyLength: Math.max(fileSize * 2, 100 * 1024), // 2倍文件大小或100KB，取较大值（小文件元数据可能很大）[m
+[32m+[m[32m      timeout: 120000, // 120秒超时，适应大文件上传[m
+[32m+[m[32m    });[m
+[32m+[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Upload response status: ${response.status}`);[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Upload response data: ${JSON.stringify(response.data)}`);[m
+[32m+[m
+[32m+[m[32m    // 钉钉API响应规范：errcode 为 0 表示成功[m
+[32m+[m[32m    if (response.data?.errcode === 0 && response.data?.media_id) {[m
+[32m+[m[32m      log?.info?.([m
+[32m+[m[32m        `[DingTalk] File uploaded successfully - media_id: ${response.data.media_id}, type: ${response.data.type}`[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return {[m
+[32m+[m[32m        mediaId: response.data.media_id,[m
+[32m+[m[32m        type: response.data.type || finalMediaType,[m
+[32m+[m[32m        createdAt: new Date((response.data.created_at || Date.now()) * 1000).toISOString(), // created_at 是秒级时间戳[m
+[32m+[m[32m      };[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    if (response.data?.errcode) {[m
+[32m+[m[32m      log?.error?.(`[DingTalk] Upload failed with errcode: ${response.data.errcode}, errmsg: ${response.data.errmsg}`);[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      log?.error?.(`[DingTalk] Upload response missing media_id - data: ${JSON.stringify(response.data)}`);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return null;[m
+[32m+[m[32m  } catch (err: any) {[m
+[32m+[m[32m    log?.error?.(`[DingTalk] Failed to upload media - message: ${err.message}`);[m
+[32m+[m[32m    log?.error?.([m
+[32m+[m[32m      `[DingTalk] Upload error details: ${JSON.stringify({[m
+[32m+[m[32m        message: err.message,[m
+[32m+[m[32m        code: err.code,[m
+[32m+[m[32m        status: err.response?.status,[m
+[32m+[m[32m        statusText: err.response?.statusText,[m
+[32m+[m[32m        data: err.response?.data,[m
+[32m+[m[32m      })}`[m
+[32m+[m[32m    );[m
+[32m+[m[32m    if (log?.debug) {[m
+[32m+[m[32m      log.debug(`[DingTalk] Upload error stack: ${err.stack}`);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    return null;[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+ function extractMessageContent(data: DingTalkInboundMessage): MessageContent {[m
+   const msgtype = data.msgtype || 'text';[m
+ [m
+[36m@@ -338,12 +478,102 @@[m [masync function sendBySession([m
+   config: DingTalkConfig,[m
+   sessionWebhook: string,[m
+   text: string,[m
+[31m-  options: SendMessageOptions = {}[m
+[32m+[m[32m  options?: SendMessageOptions[m
+[32m+[m[32m): Promise<AxiosResponse>;[m
+[32m+[m[32masync function sendBySession([m
+[32m+[m[32m  config: DingTalkConfig,[m
+[32m+[m[32m  sessionWebhook: string,[m
+[32m+[m[32m  text: string,[m
+[32m+[m[32m  mediaPath: string,[m
+[32m+[m[32m  options?: SendMessageOptions[m
+[32m+[m[32m): Promise<AxiosResponse>;[m
+[32m+[m[32masync function sendBySession([m
+[32m+[m[32m  config: DingTalkConfig,[m
+[32m+[m[32m  sessionWebhook: string,[m
+[32m+[m[32m  text: string,[m
+[32m+[m[32m  textOrMediaPath?: string | SendMessageOptions,[m
+[32m+[m[32m  optionsOrMediaPath?: SendMessageOptions | string,[m
+[32m+[m[32m  mediaPathOption?: SendMessageOptions[m
+ ): Promise<AxiosResponse> {[m
+[31m-  const token = await getAccessToken(config, options.log);[m
+[31m-  [m
+[31m-  // Use shared helper function for markdown detection and title extraction[m
+[32m+[m[32m  const initialLog =[m
+[32m+[m[32m    typeof textOrMediaPath === 'object'[m
+[32m+[m[32m      ? textOrMediaPath.log[m
+[32m+[m[32m      : typeof optionsOrMediaPath === 'object'[m
+[32m+[m[32m        ? optionsOrMediaPath.log[m
+[32m+[m[32m        : undefined;[m
+[32m+[m
+[32m+[m[32m  initialLog?.info?.(`[DingTalk] sendBySession called - sessionWebhook: ${sessionWebhook}`);[m
+[32m+[m[32m  initialLog?.debug?.([m
+[32m+[m[32m    `[DingTalk] sendBySession parameters - text: ${text}, textOrMediaPath type: ${typeof textOrMediaPath}, optionsOrMediaPath type: ${typeof optionsOrMediaPath}`[m
+[32m+[m[32m  );[m
+[32m+[m
+[32m+[m[32m  const token = await getAccessToken(config, initialLog);[m
+[32m+[m
+[32m+[m[32m  let mediaPath: string | undefined;[m
+[32m+[m[32m  let options: SendMessageOptions = {};[m
+[32m+[m
+[32m+[m[32m  if (typeof textOrMediaPath === 'object') {[m
+[32m+[m[32m    options = textOrMediaPath;[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - textOrMediaPath is SendMessageOptions`);[m
+[32m+[m[32m  } else if (typeof textOrMediaPath === 'string') {[m
+[32m+[m[32m    mediaPath = textOrMediaPath;[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - textOrMediaPath is string (mediaPath): ${mediaPath}`);[m
+[32m+[m[32m    if (typeof optionsOrMediaPath === 'object') {[m
+[32m+[m[32m      options = optionsOrMediaPath;[m
+[32m+[m[32m      options.log?.debug?.(`[DingTalk] sendBySession - optionsOrMediaPath is SendMessageOptions`);[m
+[32m+[m[32m    } else if (typeof optionsOrMediaPath === 'string') {[m
+[32m+[m[32m      mediaPath = optionsOrMediaPath;[m
+[32m+[m[32m      options = mediaPathOption || {};[m
+[32m+[m[32m      options.log?.debug?.(`[DingTalk] sendBySession - optionsOrMediaPath is string (mediaPath): ${mediaPath}`);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  if (mediaPath) {[m
+[32m+[m[32m    options.log?.info?.(`[DingTalk] sendBySession - Sending file via session webhook`);[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - mediaPath: ${mediaPath}, sessionWebhook: ${sessionWebhook}`);[m
+[32m+[m
+[32m+[m[32m    const uploadResult = await uploadMedia(config, mediaPath, 'file', options.log);[m
+[32m+[m[32m    if (!uploadResult) {[m
+[32m+[m[32m      options.log?.error?.(`[DingTalk] sendBySession - Failed to upload media file`);[m
+[32m+[m[32m      throw new Error('[DingTalk] Failed to upload media file');[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    options.log?.info?.(`[DingTalk] sendBySession - File uploaded successfully, mediaId: ${uploadResult.mediaId}`);[m
+[32m+[m
+[32m+[m[32m    const fileName = path.basename(mediaPath);[m
+[32m+[m[32m    const fileExt = fileName.split('.').pop()?.toLowerCase() || '';[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - fileName: ${fileName}, fileExt: ${fileExt}`);[m
+[32m+[m
+[32m+[m[32m    const body: FileMessageWebhookResponse = {[m
+[32m+[m[32m      msgtype: 'file',[m
+[32m+[m[32m      file: {[m
+[32m+[m[32m        fileName,[m
+[32m+[m[32m        mediaId: uploadResult.mediaId,[m
+[32m+[m[32m        fileType: fileExt,[m
+[32m+[m[32m      },[m
+[32m+[m[32m    };[m
+[32m+[m[32m    if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };[m
+[32m+[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - Request body: ${JSON.stringify(body)}`);[m
+[32m+[m
+[32m+[m[32m    const result = await axios({[m
+[32m+[m[32m      url: sessionWebhook,[m
+[32m+[m[32m      method: 'POST',[m
+[32m+[m[32m      data: body,[m
+[32m+[m[32m      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },[m
+[32m+[m[32m    });[m
+[32m+[m
+[32m+[m[32m    options.log?.info?.(`[DingTalk] sendBySession - File message sent via session webhook`);[m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendBySession - Response: ${JSON.stringify(result.data)}`);[m
+[32m+[m
+[32m+[m[32m    return result.data;[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  options.log?.info?.(`[DingTalk] sendBySession - Sending text/markdown message via session webhook`);[m
+[32m+[m[32m  options.log?.debug?.(`[DingTalk] sendBySession - text length: ${text.length}`);[m
+[32m+[m
+   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');[m
+[32m+[m[32m  options.log?.debug?.(`[DingTalk] sendBySession - useMarkdown: ${useMarkdown}, title: ${title}`);[m
+ [m
+   let body: SessionWebhookResponse;[m
+   if (useMarkdown) {[m
+[36m@@ -356,12 +586,91 @@[m [masync function sendBySession([m
+ [m
+   if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };[m
+ [m
+[32m+[m[32m  options.log?.debug?.(`[DingTalk] sendBySession - Request body: ${JSON.stringify(body)}`);[m
+[32m+[m
+   const result = await axios({[m
+     url: sessionWebhook,[m
+     method: 'POST',[m
+     data: body,[m
+     headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },[m
+   });[m
+[32m+[m
+[32m+[m[32m  options.log?.info?.(`[DingTalk] sendBySession - Message sent successfully`);[m
+[32m+[m[32m  options.log?.debug?.(`[DingTalk] sendBySession - Response: ${JSON.stringify(result.data)}`);[m
+[32m+[m
+[32m+[m[32m  return result.data;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m// Send file message via proactive API[m
+[32m+[m[32masync function sendFileMessage([m
+[32m+[m[32m  config: DingTalkConfig,[m
+[32m+[m[32m  target: string,[m
+[32m+[m[32m  mediaPath: string,[m
+[32m+[m[32m  log?: Logger[m
+[32m+[m[32m): Promise<AxiosResponse> {[m
+[32m+[m[32m  log?.info?.(`[DingTalk] sendFileMessage called - target: ${target}, mediaPath: ${mediaPath}`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] sendFileMessage config - robotCode: ${config.robotCode}, clientId: ${config.clientId}`);[m
+[32m+[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Step 1: Uploading media file...`);[m
+[32m+[m[32m  const uploadResult = await uploadMedia(config, mediaPath, 'file', log);[m
+[32m+[m
+[32m+[m[32m  if (!uploadResult) {[m
+[32m+[m[32m    log?.error?.(`[DingTalk] sendFileMessage failed - upload returned null`);[m
+[32m+[m[32m    throw new Error('[DingTalk] Failed to upload media file');[m
+[32m+[m[32m  }[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Step 1: Upload successful - mediaId: ${uploadResult.mediaId}`);[m
+[32m+[m
+[32m+[m[32m  const token = await getAccessToken(config, log);[m
+[32m+[m[32m  const isGroup = target.startsWith('cid');[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Step 2: Determining target type - isGroup: ${isGroup}`);[m
+[32m+[m
+[32m+[m[32m  const fileName = path.basename(mediaPath);[m
+[32m+[m[32m  const fileExt = fileName.split('.').pop()?.toLowerCase() || '';[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] File name extracted: ${fileName}, extension: ${fileExt}`);[m
+[32m+[m
+[32m+[m[32m  const url = isGroup[m
+[32m+[m[32m    ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'[m
+[32m+[m[32m    : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] API URL selected: ${url}`);[m
+[32m+[m
+[32m+[m[32m  const payload: ProactiveMessagePayload = {[m
+[32m+[m[32m    robotCode: config.robotCode || config.clientId,[m
+[32m+[m[32m    msgKey: 'sampleFile',[m
+[32m+[m[32m    msgParam: JSON.stringify({[m
+[32m+[m[32m      fileName,[m
+[32m+[m[32m      mediaId: uploadResult.mediaId,[m
+[32m+[m[32m      fileType: fileExt,[m
+[32m+[m[32m    }),[m
+[32m+[m[32m  };[m
+[32m+[m
+[32m+[m[32m  if (isGroup) {[m
+[32m+[m[32m    (payload as any).openConversationId = target;[m
+[32m+[m[32m  } else {[m
+[32m+[m[32m    (payload as any).userIds = [target];[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  log?.debug?.([m
+[32m+[m[32m    `[DingTalk] Request payload: ${JSON.stringify({[m
+[32m+[m[32m      robotCode: payload.robotCode,[m
+[32m+[m[32m      msgKey: payload.msgKey,[m
+[32m+[m[32m      msgParam: payload.msgParam,[m
+[32m+[m[32m      ...(isGroup[m
+[32m+[m[32m        ? { openConversationId: (payload as any).openConversationId }[m
+[32m+[m[32m        : { userIds: (payload as any).userIds }),[m
+[32m+[m[32m    })}`[m
+[32m+[m[32m  );[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Step 3: Sending file message to DingTalk API...`);[m
+[32m+[m
+[32m+[m[32m  const result = await axios({[m
+[32m+[m[32m    url,[m
+[32m+[m[32m    method: 'POST',[m
+[32m+[m[32m    data: payload,[m
+[32m+[m[32m    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },[m
+[32m+[m[32m  });[m
+[32m+[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Step 3: File message sent successfully`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] API response - status: ${result.status}, data: ${JSON.stringify(result.data)}`);[m
+[32m+[m
+   return result.data;[m
+ }[m
+ [m
+[36m@@ -380,13 +689,13 @@[m [masync function sendInteractiveCard([m
+ [m
+   const token = await getAccessToken(config, options.log);[m
+   const isGroup = conversationId.startsWith('cid');[m
+[31m-  [m
+[32m+[m
+   // Generate unique card business ID using crypto.randomUUID[m
+   const cardBizId = `card_${randomUUID()}`;[m
+[31m-  [m
+[32m+[m
+   // Extract title and detect markdown[m
+   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');[m
+[31m-  [m
+[32m+[m
+   // Build card data structure with markdown support[m
+   const cardData: InteractiveCardData = {[m
+     config: {[m
+[36m@@ -406,7 +715,7 @@[m [masync function sendInteractiveCard([m
+       },[m
+     ],[m
+   };[m
+[31m-  [m
+[32m+[m
+   // Build request payload[m
+   const payload: InteractiveCardSendRequest = {[m
+     cardTemplateId: config.cardTemplateId || 'StandardCard',[m
+[36m@@ -414,17 +723,16 @@[m [masync function sendInteractiveCard([m
+     robotCode,[m
+     cardData: JSON.stringify(cardData),[m
+   };[m
+[31m-  [m
+[32m+[m
+   if (isGroup) {[m
+     payload.openConversationId = conversationId;[m
+   } else {[m
+     payload.singleChatReceiver = JSON.stringify({ userId: conversationId });[m
+   }[m
+[31m-  [m
+[32m+[m
+   // Use configurable API URL with retry logic[m
+[31m-  const apiUrl =[m
+[31m-    config.cardSendApiUrl || 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send';[m
+[31m-  [m
+[32m+[m[32m  const apiUrl = config.cardSendApiUrl || 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send';[m
+[32m+[m
+   const result = await retryWithBackoff([m
+     async () => {[m
+       return await axios({[m
+[36m@@ -436,7 +744,7 @@[m [masync function sendInteractiveCard([m
+     },[m
+     { maxRetries: 3, log: options.log }[m
+   );[m
+[31m-  [m
+[32m+[m
+   // Cache card instance for future updates[m
+   cardInstances.set(cardBizId, {[m
+     cardBizId,[m
+[36m@@ -444,7 +752,7 @@[m [masync function sendInteractiveCard([m
+     createdAt: Date.now(),[m
+     lastUpdated: Date.now(),[m
+   });[m
+[31m-  [m
+[32m+[m
+   return { cardBizId, response: result.data };[m
+ }[m
+ [m
+[36m@@ -456,10 +764,10 @@[m [masync function updateInteractiveCard([m
+   options: SendMessageOptions = {}[m
+ ): Promise<any> {[m
+   const token = await getAccessToken(config, options.log);[m
+[31m-  [m
+[32m+[m
+   // Extract title and detect markdown[m
+   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');[m
+[31m-  [m
+[32m+[m
+   // Build updated card data with markdown support[m
+   const cardData: InteractiveCardData = {[m
+     config: {[m
+[36m@@ -479,7 +787,7 @@[m [masync function updateInteractiveCard([m
+       },[m
+     ],[m
+   };[m
+[31m-  [m
+[32m+[m
+   // Build update request[m
+   const payload: InteractiveCardUpdateRequest = {[m
+     cardBizId,[m
+[36m@@ -488,10 +796,10 @@[m [masync function updateInteractiveCard([m
+       updateCardDataByKey: false,[m
+     },[m
+   };[m
+[31m-  [m
+[32m+[m
+   // Use configurable API URL with retry logic[m
+   const apiUrl = config.cardUpdateApiUrl || 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards';[m
+[31m-  [m
+[32m+[m
+   try {[m
+     const result = await retryWithBackoff([m
+       async () => {[m
+[36m@@ -504,21 +812,19 @@[m [masync function updateInteractiveCard([m
+       },[m
+       { maxRetries: 3, log: options.log }[m
+     );[m
+[31m-    [m
+[32m+[m
+     // Update cache on success[m
+     const instance = cardInstances.get(cardBizId);[m
+     if (instance) {[m
+       instance.lastUpdated = Date.now();[m
+     }[m
+[31m-    [m
+[32m+[m
+     return result.data;[m
+   } catch (err: any) {[m
+     // Remove card from cache on terminal errors (404, 410, etc.)[m
+     const statusCode = err.response?.status;[m
+     if (statusCode === 404 || statusCode === 410 || statusCode === 403) {[m
+[31m-      options.log?.debug?.([m
+[31m-        `[DingTalk] Removing card ${cardBizId} from cache due to error ${statusCode}`[m
+[31m-      );[m
+[32m+[m[32m      options.log?.debug?.(`[DingTalk] Removing card ${cardBizId} from cache due to error ${statusCode}`);[m
+       cardInstances.delete(cardBizId);[m
+     }[m
+     throw err;[m
+[36m@@ -535,24 +841,24 @@[m [masync function updateInteractiveCardThrottled([m
+   const now = Date.now();[m
+   const lastUpdate = cardUpdateTimestamps.get(cardBizId) || 0;[m
+   const timeSinceLastUpdate = now - lastUpdate;[m
+[31m-  [m
+[32m+[m
+   // Clear any existing timeout for this card[m
+   const existingTimeout = cardUpdateTimeouts.get(cardBizId);[m
+   if (existingTimeout) {[m
+     clearTimeout(existingTimeout);[m
+   }[m
+[31m-  [m
+[32m+[m
+   // If enough time has passed, update immediately[m
+   if (timeSinceLastUpdate >= CARD_UPDATE_MIN_INTERVAL) {[m
+     cardUpdateTimestamps.set(cardBizId, now);[m
+     const result = await updateInteractiveCard(config, cardBizId, text, options);[m
+[31m-    [m
+[32m+[m
+     // Set timeout to detect when updates are complete[m
+     const timeout = setTimeout(() => {[m
+       cardUpdateTimeouts.delete(cardBizId);[m
+       options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);[m
+     }, CARD_UPDATE_TIMEOUT);[m
+[31m-    [m
+[32m+[m
+     cardUpdateTimeouts.set(cardBizId, timeout);[m
+     return result;[m
+   } else {[m
+[36m@@ -563,20 +869,20 @@[m [masync function updateInteractiveCardThrottled([m
+         try {[m
+           cardUpdateTimestamps.set(cardBizId, Date.now());[m
+           const result = await updateInteractiveCard(config, cardBizId, text, options);[m
+[31m-          [m
+[32m+[m
+           // Set inactivity timeout[m
+           const inactivityTimeout = setTimeout(() => {[m
+             cardUpdateTimeouts.delete(cardBizId);[m
+             options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);[m
+           }, CARD_UPDATE_TIMEOUT);[m
+[31m-          [m
+[32m+[m
+           cardUpdateTimeouts.set(cardBizId, inactivityTimeout);[m
+           resolve(result);[m
+         } catch (err) {[m
+           reject(err);[m
+         }[m
+       }, delay);[m
+[31m-      [m
+[32m+[m
+       cardUpdateTimeouts.set(cardBizId, timeout);[m
+     });[m
+   }[m
+[36m@@ -589,33 +895,62 @@[m [masync function sendMessage([m
+   text: string,[m
+   options: SendMessageOptions & { cardBizId?: string; sessionWebhook?: string } = {}[m
+ ): Promise<{ ok: boolean; cardBizId?: string; error?: string }> {[m
+[32m+[m[32m  options.log?.info?.(`[DingTalk] sendMessage called - conversationId: ${conversationId}, textLength: ${text.length}`);[m
+[32m+[m[32m  options.log?.debug?.([m
+[32m+[m[32m    `[DingTalk] sendMessage config - messageType: ${config.messageType}, hasSessionWebhook: ${!!options.sessionWebhook}`[m
+[32m+[m[32m  );[m
+[32m+[m[32m  options.log?.debug?.([m
+[32m+[m[32m    `[DingTalk] sendMessage options - cardBizId: ${options.cardBizId || 'none'}, atUserId: ${options.atUserId || 'none'}`[m
+[32m+[m[32m  );[m
+[32m+[m
+   try {[m
+     const messageType = config.messageType || 'markdown';[m
+[31m-    [m
+[32m+[m[32m    options.log?.debug?.(`[DingTalk] sendMessage determined messageType: ${messageType}`);[m
+[32m+[m
+     // If sessionWebhook is provided, use session-based sending (for replies during conversation)[m
+     if (options.sessionWebhook) {[m
+[32m+[m[32m      options.log?.info?.(`[DingTalk] sendMessage using session-based sending via sendBySession`);[m
+[32m+[m[32m      options.log?.debug?.(`[DingTalk] sendMessage sessionWebhook: ${options.sessionWebhook}`);[m
+       await sendBySession(config, options.sessionWebhook, text, options);[m
+[32m+[m[32m      options.log?.info?.(`[DingTalk] sendMessage session-based send completed successfully`);[m
+       return { ok: true };[m
+     }[m
+[31m-    [m
+[32m+[m
+     // For card mode with streaming[m
+     if (messageType === 'card') {[m
+[32m+[m[32m      options.log?.info?.(`[DingTalk] sendMessage using card mode`);[m
+       if (options.cardBizId) {[m
+[31m-        // Update existing card[m
+[32m+[m[32m        options.log?.info?.(`[DingTalk] sendMessage updating existing card - cardBizId: ${options.cardBizId}`);[m
+         await updateInteractiveCard(config, options.cardBizId, text, options);[m
+[32m+[m[32m        options.log?.info?.(`[DingTalk] sendMessage card updated successfully`);[m
+         return { ok: true, cardBizId: options.cardBizId };[m
+       } else {[m
+[31m-        // Create new card[m
+[32m+[m[32m        options.log?.info?.(`[DingTalk] sendMessage creating new card`);[m
+         const { cardBizId } = await sendInteractiveCard(config, conversationId, text, options);[m
+[32m+[m[32m        options.log?.info?.(`[DingTalk] sendMessage new card created - cardBizId: ${cardBizId}`);[m
+         return { ok: true, cardBizId };[m
+       }[m
+     }[m
+[31m-    [m
+[32m+[m
+     // For text/markdown mode (backward compatibility)[m
+[32m+[m[32m    options.log?.info?.(`[DingTalk] sendMessage using ${messageType} mode via sendProactiveMessage`);[m
+     await sendProactiveMessage(config, conversationId, text, options);[m
+[32m+[m[32m    options.log?.info?.(`[DingTalk] sendMessage ${messageType} sent successfully`);[m
+     return { ok: true };[m
+   } catch (err: any) {[m
+[31m-    options.log?.error?.(`[DingTalk] Send message failed: ${err.message}`);[m
+[32m+[m[32m    options.log?.error?.(`[DingTalk] sendMessage failed: ${err.message}`);[m
+[32m+[m[32m    options.log?.error?.([m
+[32m+[m[32m      `[DingTalk] sendMessage error details: ${JSON.stringify({[m
+[32m+[m[32m        message: err.message,[m
+[32m+[m[32m        code: err.code,[m
+[32m+[m[32m        status: err.response?.status,[m
+[32m+[m[32m        statusText: err.response?.statusText,[m
+[32m+[m[32m        data: err.response?.data,[m
+[32m+[m[32m      })}`[m
+[32m+[m[32m    );[m
+[32m+[m[32m    if (options.log?.debug) {[m
+[32m+[m[32m      options.log.debug(`[DingTalk] sendMessage error stack: ${err.stack}`);[m
+[32m+[m[32m    }[m
+     return { ok: false, error: err.message };[m
+   }[m
+ }[m
+[36m@@ -625,16 +960,26 @@[m [masync function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi[m
+   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;[m
+   const rt = getDingTalkRuntime();[m
+ [m
+[32m+[m[32m  log?.info?.(`[DingTalk] handleDingTalkMessage called - accountId: ${accountId}, msgId: ${data.msgId || 'unknown'}`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] handleDingTalkMessage sessionWebhook: ${sessionWebhook || 'none'}`);[m
+   log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));[m
+ [m
+   // 1. 过滤机器人自身消息[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Checking self-message - senderId: ${data.senderId}, chatbotUserId: ${data.chatbotUserId}`);[m
+   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {[m
+[31m-    log?.debug?.('[DingTalk] Ignoring robot self-message');[m
+[32m+[m[32m    log?.info?.('[DingTalk] Ignoring robot self-message');[m
+     return;[m
+   }[m
+[32m+[m[32m  log?.debug?.('[DingTalk] Message is not from robot itself');[m
+ [m
+   const content = extractMessageContent(data);[m
+[31m-  if (!content.text) return;[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Message extracted - type: ${content.messageType}, hasText: ${!!content.text}`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Message content: "${content.text?.slice(0, 100)}..."`);[m
+[32m+[m
+[32m+[m[32m  if (!content.text) {[m
+[32m+[m[32m    log?.warn?.('[DingTalk] No text content in message, skipping');[m
+[32m+[m[32m    return;[m
+[32m+[m[32m  }[m
+ [m
+   const isDirect = data.conversationType === '1';[m
+   const senderId = data.senderStaffId || data.senderId;[m
+[36m@@ -642,65 +987,99 @@[m [masync function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi[m
+   const groupId = data.conversationId;[m
+   const groupName = data.conversationTitle || 'Group';[m
+ [m
+[32m+[m[32m  log?.info?.(`[DingTalk] Message context - isDirect: ${isDirect}, senderId: ${senderId}, senderName: ${senderName}`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Group info - groupId: ${groupId}, groupName: ${groupName}`);[m
+[32m+[m
+   // 2. Check authorization for direct messages based on dmPolicy[m
+   let commandAuthorized = true;[m
+   if (isDirect) {[m
+     const dmPolicy = dingtalkConfig.dmPolicy || 'open';[m
+     const allowFrom = dingtalkConfig.allowFrom || [];[m
+[31m-    [m
+[32m+[m
+[32m+[m[32m    log?.info?.(`[DingTalk] DM policy check - dmPolicy: ${dmPolicy}, allowFrom count: ${allowFrom.length}`);[m
+[32m+[m
+     if (dmPolicy === 'allowlist') {[m
+       const normalizedAllowFrom = normalizeAllowFrom(allowFrom);[m
+       const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });[m
+[31m-      [m
+[32m+[m
+[32m+[m[32m      log?.debug?.(`[DingTalk] Allowlist check - senderId: ${senderId}, isAllowed: ${isAllowed}`);[m
+[32m+[m
+       if (!isAllowed) {[m
+[31m-        log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);[m
+[31m-        [m
+[32m+[m[32m        log?.info?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);[m
+[32m+[m
+         // Notify user with their sender ID so they can request access[m
+         try {[m
+[31m-          await sendBySession(dingtalkConfig, sessionWebhook, [m
+[31m-            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`, [m
+[32m+[m[32m          log?.info?.('[DingTalk] Sending access denied notification');[m
+[32m+[m[32m          await sendBySession([m
+[32m+[m[32m            dingtalkConfig,[m
+[32m+[m[32m            sessionWebhook,[m
+[32m+[m[32m            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`,[m
+             { log }[m
+           );[m
+[32m+[m[32m          log?.info?.('[DingTalk] Access denied notification sent successfully');[m
+         } catch (err: any) {[m
+[31m-          log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);[m
+[32m+[m[32m          log?.error?.(`[DingTalk] Failed to send access denied message: ${err.message}`);[m
+         }[m
+[31m-        [m
+[32m+[m
+         return;[m
+       }[m
+[31m-      [m
+[31m-      log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);[m
+[32m+[m
+[32m+[m[32m      log?.info?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);[m
+     } else if (dmPolicy === 'pairing') {[m
+[31m-      // For pairing mode, SDK will handle the authorization[m
+[31m-      // Set commandAuthorized to true to let SDK check pairing status[m
+[32m+[m[32m      log?.info?.('[DingTalk] DM policy is pairing, SDK will handle authorization');[m
+       commandAuthorized = true;[m
+     } else {[m
+[31m-      // 'open' policy - allow all[m
+[32m+[m[32m      log?.info?.('[DingTalk] DM policy is open, allowing all messages');[m
+       commandAuthorized = true;[m
+     }[m
+   }[m
+ [m
+[32m+[m[32m  // 3. Handle media files[m
+   let mediaPath: string | undefined;[m
+   let mediaType: string | undefined;[m
+   if (content.mediaPath && dingtalkConfig.robotCode) {[m
+[32m+[m[32m    log?.info?.([m
+[32m+[m[32m      `[DingTalk] Received media message - downloadCode: ${content.mediaPath}, messageType: ${content.messageType}`[m
+[32m+[m[32m    );[m
+[32m+[m[32m    log?.debug?.(`[DingTalk] Downloading media with robotCode: ${dingtalkConfig.robotCode}`);[m
+     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);[m
+     if (media) {[m
+       mediaPath = media.path;[m
+       mediaType = media.mimeType;[m
+[32m+[m[32m      log?.info?.(`[DingTalk] Media downloaded successfully - path: ${mediaPath}, mimeType: ${mediaType}`);[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      log?.warn?.(`[DingTalk] Failed to download media - downloadCode: ${content.mediaPath}`);[m
+     }[m
+[32m+[m[32m  } else {[m
+[32m+[m[32m    log?.debug?.([m
+[32m+[m[32m      `[DingTalk] No media to download - hasMediaPath: ${!!content.mediaPath}, hasRobotCode: ${!!dingtalkConfig.robotCode}`[m
+[32m+[m[32m    );[m
+   }[m
+ [m
+[32m+[m[32m  // 4. Resolve agent route[m
+[32m+[m[32m  log?.info?.('[DingTalk] Resolving agent route...');[m
+   const route = rt.channel.routing.resolveAgentRoute({[m
+     cfg,[m
+     channel: 'dingtalk',[m
+     accountId,[m
+     peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },[m
+   });[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Agent route resolved - agentId: ${route.agentId}, sessionKey: ${route.sessionKey}`);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Route details - mainSessionKey: ${route.mainSessionKey}`);[m
+ [m
+   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Session store path: ${storePath}`);[m
+[32m+[m
+   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Envelope options: ${JSON.stringify(envelopeOptions)}`);[m
+[32m+[m
+   const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Previous session timestamp: ${previousTimestamp || 'none'}`);[m
+ [m
+[32m+[m[32m  // 5. Format inbound envelope[m
+   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] From label: ${fromLabel}`);[m
+[32m+[m
+   const body = rt.channel.reply.formatInboundEnvelope({[m
+     channel: 'DingTalk',[m
+     from: fromLabel,[m
+[36m@@ -711,8 +1090,13 @@[m [masync function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi[m
+     previousTimestamp,[m
+     envelope: envelopeOptions,[m
+   });[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Inbound envelope formatted`);[m
+ [m
+   const to = isDirect ? senderId : groupId;[m
+[32m+[m[32m  log?.debug?.(`[DingTalk] Target (to): ${to}`);[m
+[32m+[m
+[32m+[m[32m  // 6. Finalize context[m
+[32m+[m[32m  log?.info?.('[DingTalk] Finalizing inbound context...');[m
+   const ctx = rt.channel.reply.finalizeInboundContext({[m
+     Body: body,[m
+     RawBody: content.text,[m
+[36m@@ -737,67 +1121,129 @@[m [masync function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi[m
+     OriginatingChannel: 'dingtalk',[m
+     OriginatingTo: to,[m
+   });[m
+[32m+[m[32m  log?.info?.(`[DingTalk] Inbound context finalized - SessionKey: ${ctx.SessionKey}`);[m
+ [m
+[32m+[m[32m  // 7. Record session[m
+[32m+[m[32m  log?.info?.('[DingTalk] Recording inbound session...');[m
+   await rt.channel.session.recordInboundSession({[m
+     storePath,[m
+     sessionKey: ctx.SessionKey || route.sessionKey,[m
+     ctx,[m
+     updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },[m
+   });[m
+[32m+[m[32m  log?.info?.('[DingTalk] Inbound session recorded successfully');[m
+ [m
+   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);[m
+ [m
+[31m-  // Feedback: Thinking...[m
+[32m+[m[32m  // 8. Send "thinking" feedback[m
+   let currentCardBizId: string | undefined;[m
+   const useCardMode = dingtalkConfig.messageType === 'card';[m
+[31m-  [m
+[32m+[m
+[32m+[m[32m  log?.info?.([m
+[32m+[m[32m    `[DingTalk] Reply mode - useCardMode: ${useCardMode}, showThinking: ${dingtalkConfig.showThinking !== false}`[m
+[32m+[m[32m  );[m
+[32m+[m
+   if (dingtalkConfig.showThinking !== false) {[m
+[32m+[m[32m    log?.info?.('[DingTalk] Sending "thinking" message...');[m
+     try {[m
+       if (useCardMode) {[m
+[31m-        // For card mode, send initial card with thinking message[m
+[32m+[m[32m        log?.info?.('[DingTalk] Sending thinking card...');[m
+         const result = await sendInteractiveCard(dingtalkConfig, to, '🤔 思考中，请稍候...', { log });[m
+         currentCardBizId = result.cardBizId;[m
+[32m+[m[32m        log?.info?.(`[DingTalk] Thinking card sent - cardBizId: ${currentCardBizId}`);[m
+       } else {[m
+[31m-        // For text/markdown mode, send via session webhook[m
+[32m+[m[32m        log?.info?.('[DingTalk] Sending thinking message via session webhook...');[m
+         await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候...', {[m
+           atUserId: !isDirect ? senderId : null,[m
+           log,[m
+         });[m
+[32m+[m[32m        log?.info?.('[DingTalk] Thinking message sent successfully');[m
+       }[m
+     } catch (err: any) {[m
+[31m-      log?.debug?.(`[DingTalk] Thinking message failed: ${err.message}`);[m
+[32m+[m[32m      log?.error?.(`[DingTalk] Thinking message failed: ${err.message}`);[m
+[32m+[m[32m      log?.debug?.(`[DingTalk] Thinking message error: ${err.stack}`);[m
+     }[m
+   }[m
+ [m
+[32m+[m[32m  // 9. Create reply dispatcher[m
+[32m+[m[32m  log?.info?.('[DingTalk] Creating reply dispatcher...');[m
+   const { dispatcher, replyOptions, markDispatchIdle } = rt.channel.reply.createReplyDispatcherWithTyping({[m
+     responsePrefix: '',[m
+     deliver: async (payload: any) => {[m
+       try {[m
+[32m+[m[32m        log?.debug?.(`[DingTalk] Deliver payload received: ${JSON.stringify(payload)}`);[m
+         const textToSend = payload.markdown || payload.text;[m
+[31m-        if (!textToSend) return { ok: true };[m
+[31m-        [m
+[31m-        if (useCardMode) {[m
+[31m-          // Card mode: update existing card or create new one (throttled)[m
+[31m-          if (currentCardBizId) {[m
+[31m-            await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });[m
+[32m+[m[32m        log?.debug?.(`[DingTalk] Deliver called - textLength: ${textToSend?.length || 0}`);[m
+[32m+[m
+[32m+[m[32m        // Check for media files (single or multiple)[m
+[32m+[m[32m        const hasMediaUrls = payload.mediaUrls && Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0;[m
+[32m+[m[32m        const hasMediaUrl = payload.mediaUrl && typeof payload.mediaUrl === 'string';[m
+[32m+[m
+[32m+[m[32m        log?.debug?.(`[DingTalk] Media check - hasMediaUrls: ${hasMediaUrls}, hasMediaUrl: ${hasMediaUrl}`);[m
+[32m+[m
+[32m+[m[32m        // Send media files first if present[m
+[32m+[m[32m        if (hasMediaUrls) {[m
+[32m+[m[32m          log?.info?.(`[DingTalk] Sending ${payload.mediaUrls.length} media file(s) from mediaUrls`);[m
+[32m+[m[32m          for (const mediaUrl of payload.mediaUrls) {[m
+[32m+[m[32m            try {[m
+[32m+[m[32m              log?.info?.(`[DingTalk] Sending media file: ${mediaUrl}`);[m
+[32m+[m[32m              await sendFileMessage(dingtalkConfig, to, mediaUrl, log);[m
+[32m+[m[32m              log?.info?.(`[DingTalk] Media file sent successfully: ${mediaUrl}`);[m
+[32m+[m[32m            } catch (err: any) {[m
+[32m+[m[32m              log?.error?.(`[DingTalk] Failed to send media file ${mediaUrl}: ${err.message}`);[m
+[32m+[m[32m              // Continue sending other files even if one fails[m
+[32m+[m[32m            }[m
+[32m+[m[32m          }[m
+[32m+[m[32m        } else if (hasMediaUrl) {[m
+[32m+[m[32m          log?.info?.(`[DingTalk] Sending single media file from mediaUrl: ${payload.mediaUrl}`);[m
+[32m+[m[32m          try {[m
+[32m+[m[32m            await sendFileMessage(dingtalkConfig, to, payload.mediaUrl, log);[m
+[32m+[m[32m            log?.info?.(`[DingTalk] Media file sent successfully: ${payload.mediaUrl}`);[m
+[32m+[m[32m          } catch (err: any) {[m
+[32m+[m[32m            log?.error?.(`[DingTalk] Failed to send media file ${payload.mediaUrl}: ${err.message}`);[m
+[32m+[m[32m          }[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        // Then send text message if present[m
+[32m+[m[32m        if (textToSend) {[m
+[32m+[m[32m          log?.info?.('[DingTalk] Sending text message');[m
+[32m+[m[32m          if (useCardMode) {[m
+[32m+[m[32m            log?.info?.(`[DingTalk] Delivering via card mode - hasCardBizId: ${!!currentCardBizId}`);[m
+[32m+[m[32m            if (currentCardBizId) {[m
+[32m+[m[32m              log?.debug?.(`[DingTalk] Updating existing card - cardBizId: ${currentCardBizId}`);[m
+[32m+[m[32m              await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });[m
+[32m+[m[32m              log?.debug?.('[DingTalk] Card updated successfully');[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m              log?.info?.('[DingTalk] Creating new card for delivery');[m
+[32m+[m[32m              const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });[m
+[32m+[m[32m              currentCardBizId = result.cardBizId;[m
+[32m+[m[32m              log?.info?.(`[DingTalk] New card created - cardBizId: ${currentCardBizId}`);[m
+[32m+[m[32m            }[m
+           } else {[m
+[31m-            const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });[m
+[31m-            currentCardBizId = result.cardBizId;[m
+[32m+[m[32m            log?.info?.('[DingTalk] Delivering via session webhook');[m
+[32m+[m[32m            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {[m
+[32m+[m[32m              atUserId: !isDirect ? senderId : null,[m
+[32m+[m[32m              log,[m
+[32m+[m[32m            });[m
+[32m+[m[32m            log?.debug?.('[DingTalk] Message delivered via session webhook');[m
+           }[m
+[31m-        } else {[m
+[31m-          // Text/markdown mode: send via session webhook[m
+[31m-          await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {[m
+[31m-            atUserId: !isDirect ? senderId : null,[m
+[31m-            log,[m
+[31m-          });[m
+         }[m
+[32m+[m
+         return { ok: true };[m
+       } catch (err: any) {[m
+[31m-        log?.error?.(`[DingTalk] Reply failed: ${err.message}`);[m
+[32m+[m[32m        log?.error?.(`[DingTalk] Reply delivery failed: ${err.message}`);[m
+[32m+[m[32m        log?.error?.([m
+[32m+[m[32m          `[DingTalk] Delivery error details: ${JSON.stringify({[m
+[32m+[m[32m            message: err.message,[m
+[32m+[m[32m            code: err.code,[m
+[32m+[m[32m            status: err.response?.status,[m
+[32m+[m[32m          })}`[m
+[32m+[m[32m        );[m
+         return { ok: false, error: err.message };[m
+       }[m
+     },[m
+   });[m
+[32m+[m[32m  log?.info?.('[DingTalk] Reply dispatcher created successfully');[m
+ [m
+   try {[m
+     await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });[m
+[36m@@ -896,15 +1342,38 @@[m [mexport const dingtalkPlugin = {[m
+       }[m
+     },[m
+     sendMedia: async ({ cfg, to, mediaPath, accountId, log }: any) => {[m
+[32m+[m[32m      log?.info?.(`[DingTalk] outbound.sendMedia called - to: ${to}, mediaPath: ${mediaPath}, accountId: ${accountId}`);[m
+[32m+[m
+       const config = getConfig(cfg, accountId);[m
+       if (!config.clientId) {[m
+[32m+[m[32m        log?.error?.(`[DingTalk] outbound.sendMedia - clientId not configured`);[m
+         return { ok: false, error: 'DingTalk not configured' };[m
+       }[m
+[32m+[m[32m      log?.debug?.([m
+[32m+[m[32m        `[DingTalk] outbound.sendMedia - Config found - clientId: ${config.clientId}, robotCode: ${config.robotCode}`[m
+[32m+[m[32m      );[m
+[32m+[m
+       try {[m
+[31m-        const mediaDescription = `[媒体消息: ${mediaPath}]`;[m
+[31m-        const result = await sendProactiveMessage(config, to, mediaDescription, { log });[m
+[32m+[m[32m        log?.info?.(`[DingTalk] outbound.sendMedia - Calling sendFileMessage...`);[m
+[32m+[m[32m        const result = await sendFileMessage(config, to, mediaPath, log);[m
+[32m+[m[32m        log?.info?.(`[DingTalk] outbound.sendMedia - File sent successfully`);[m
+[32m+[m[32m        log?.debug?.(`[DingTalk] outbound.sendMedia - Result: ${JSON.stringify(result)}`);[m
+         return { ok: true, data: result };[m
+       } catch (err: any) {[m
+[32m+[m[32m        log?.error?.(`[DingTalk] outbound.sendMedia - Failed to send file`);[m
+[32m+[m[32m        log?.error?.(`[DingTalk] outbound.sendMedia - Error: ${err.message}`);[m
+[32m+[m[32m        log?.error?.([m
+[32m+[m[32m          `[DingTalk] outbound.sendMedia - Error details: ${JSON.stringify({[m
+[32m+[m[32m            message: err.message,[m
+[32m+[m[32m            code: err.code,[m
+[32m+[m[32m            status: err.response?.status,[m
+[32m+[m[32m            statusText: err.response?.statusText,[m
+[32m+[m[32m            data: err.response?.data,[m
+[32m+[m[32m          })}`[m
+[32m+[m[32m        );[m
+[32m+[m[32m        if (log?.debug) {[m
+[32m+[m[32m          log.debug(`[DingTalk] outbound.sendMedia - Error stack: ${err.stack}`);[m
+[32m+[m[32m        }[m
+         return { ok: false, error: err.response?.data || err.message };[m
+       }[m
+     },[m
+[36m@@ -1005,9 +1474,11 @@[m [mexport const dingtalkPlugin = {[m
+  * Public low-level API exports for the DingTalk channel plugin.[m
+  *[m
+  * - {@link sendBySession} sends a message to DingTalk using a session/webhook[m
+[31m- *   (e.g. replies within an existing conversation).[m
+[32m+[m[32m *   (e.g. replies within an existing conversation). Supports text, markdown, and file messages.[m
+  * - {@link sendProactiveMessage} sends a proactive/outbound message to DingTalk[m
+  *   without requiring an existing inbound session.[m
+[32m+[m[32m * - {@link sendFileMessage} sends a file message to DingTalk.[m
+[32m+[m[32m * - {@link uploadMedia} uploads a media file to DingTalk and returns mediaId.[m
+  * - {@link sendInteractiveCard} sends an interactive card to DingTalk[m
+  *   (returns cardBizId for streaming updates).[m
+  * - {@link updateInteractiveCard} updates an existing interactive card[m
+[36m@@ -1025,6 +1496,8 @@[m [mexport const dingtalkPlugin = {[m
+ export {[m
+   sendBySession,[m
+   sendProactiveMessage,[m
+[32m+[m[32m  sendFileMessage,[m
+[32m+[m[32m  uploadMedia,[m
+   sendInteractiveCard,[m
+   updateInteractiveCard,[m
+   updateInteractiveCardThrottled,[m
+[1mdiff --git a/src/types.ts b/src/types.ts[m
+[1mindex c46f958..9d31be7 100644[m
+[1m--- a/src/types.ts[m
+[1m+++ b/src/types.ts[m
+[36m@@ -11,6 +11,15 @@[m
+ [m
+ import type { OpenClawConfig } from 'openclaw/plugin-sdk';[m
+ [m
+[32m+[m[32m/**[m
+[32m+[m[32m * Upload media file request parameters[m
+[32m+[m[32m */[m
+[32m+[m[32mexport interface UploadMediaParams {[m
+[32m+[m[32m  type: 'image' | 'video' | 'audio' | 'file';[m
+[32m+[m[32m  mediaPath: string;[m
+[32m+[m[32m  agentId?: string;[m
+[32m+[m[32m}[m
+[32m+[m
+ /**[m
+  * DingTalk channel configuration (extends base OpenClaw config)[m
+  */[m
+[36m@@ -98,6 +107,36 @@[m [mexport interface MediaFile {[m
+   mimeType: string;[m
+ }[m
+ [m
+[32m+[m[32m/**[m
+[32m+[m[32m * Media upload response from DingTalk API[m
+[32m+[m[32m */[m
+[32m+[m[32mexport interface MediaUploadResponse {[m
+[32m+[m[32m  mediaId: string;[m
+[32m+[m[32m  type?: string;[m
+[32m+[m[32m  createdAt?: string;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * File message content for sending files[m
+[32m+[m[32m */[m
+[32m+[m[32mexport interface FileMessageContent {[m
+[32m+[m[32m  fileName: string;[m
+[32m+[m[32m  mediaId: string;[m
+[32m+[m[32m  fileType: string;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Session webhook response with file message[m
+[32m+[m[32m */[m
+[32m+[m[32mexport interface FileMessageWebhookResponse {[m
+[32m+[m[32m  msgtype: 'file';[m
+[32m+[m[32m  file: FileMessageContent;[m
+[32m+[m[32m  at?: {[m
+[32m+[m[32m    atUserIds: string[];[m
+[32m+[m[32m    isAtAll: boolean;[m
+[32m+[m[32m  };[m
+[32m+[m[32m}[m
+[32m+[m
+ /**[m
+  * DingTalk incoming message (Stream mode)[m
+  */[m

@@ -12,6 +12,15 @@
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 
 /**
+ * Upload media file request parameters
+ */
+export interface UploadMediaParams {
+  type: 'image' | 'video' | 'audio' | 'file';
+  mediaPath: string;
+  agentId?: string;
+}
+
+/**
  * DingTalk channel configuration (extends base OpenClaw config)
  */
 export interface DingTalkConfig extends OpenClawConfig {
@@ -96,6 +105,36 @@ export interface MediaDownloadResponse {
 export interface MediaFile {
   path: string;
   mimeType: string;
+}
+
+/**
+ * Media upload response from DingTalk API
+ */
+export interface MediaUploadResponse {
+  mediaId: string;
+  type?: string;
+  createdAt?: string;
+}
+
+/**
+ * File message content for sending files
+ */
+export interface FileMessageContent {
+  fileName: string;
+  mediaId: string;
+  fileType: string;
+}
+
+/**
+ * Session webhook response with file message
+ */
+export interface FileMessageWebhookResponse {
+  msgtype: 'file';
+  file: FileMessageContent;
+  at?: {
+    atUserIds: string[];
+    isAtAll: boolean;
+  };
 }
 
 /**

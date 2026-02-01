@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import FormData from 'form-data';
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
@@ -27,6 +28,8 @@ import type {
   InteractiveCardSendRequest,
   InteractiveCardUpdateRequest,
   CardInstance,
+  MediaUploadResponse,
+  FileMessageWebhookResponse,
 } from './types';
 
 // Access Token cache
@@ -76,10 +79,7 @@ function normalizeAllowFrom(list?: Array<string>): NormalizedAllowFrom {
 /**
  * Check if sender is allowed based on allowFrom list
  */
-function isSenderAllowed(params: {
-  allow: NormalizedAllowFrom;
-  senderId?: string;
-}): boolean {
+function isSenderAllowed(params: { allow: NormalizedAllowFrom; senderId?: string }): boolean {
   const { allow, senderId } = params;
   if (!allow.hasEntries) return true;
   if (allow.hasWildcard) return true;
@@ -160,8 +160,12 @@ function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
 async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<string> {
   const now = Date.now();
   if (accessToken && accessTokenExpiry > now + 60000) {
+    log?.debug?.(`[DingTalk] Using cached access token (expires at: ${new Date(accessTokenExpiry).toISOString()})`);
     return accessToken;
   }
+
+  log?.info?.(`[DingTalk] Requesting new access token - clientId: ${config.clientId?.substring(0, 8)}...`);
+  log?.debug?.(`[DingTalk] Access token URL: https://api.dingtalk.com/v1.0/oauth2/accessToken`);
 
   const token = await retryWithBackoff(
     async () => {
@@ -170,8 +174,12 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
         appSecret: config.clientSecret,
       });
 
+      log?.debug?.(`[DingTalk] Access token response - expireIn: ${response.data.expireIn} seconds`);
+
       accessToken = response.data.accessToken;
       accessTokenExpiry = now + response.data.expireIn * 1000;
+      log?.info?.(`[DingTalk] New access token obtained, expires at: ${new Date(accessTokenExpiry).toISOString()}`);
+
       return accessToken;
     },
     { maxRetries: 3, log }
@@ -284,6 +292,138 @@ async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?:
   }
 }
 
+// Upload media file to DingTalk
+async function uploadMedia(
+  config: DingTalkConfig,
+  mediaPath: string,
+  mediaType: string = 'file',
+  log?: Logger
+): Promise<MediaUploadResponse | null> {
+  try {
+    const fileName = path.basename(mediaPath);
+    const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+
+    let finalMediaType = mediaType;
+
+    if (mediaType === 'file') {
+      const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp'];
+      const voiceExts = ['amr', 'mp3', 'wav'];
+      const videoExts = ['mp4'];
+      const fileExts = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'pdf', 'rar'];
+
+      if (imageExts.includes(fileExt)) {
+        finalMediaType = 'image';
+      } else if (voiceExts.includes(fileExt)) {
+        finalMediaType = 'voice';
+      } else if (videoExts.includes(fileExt)) {
+        finalMediaType = 'video';
+      } else if (fileExts.includes(fileExt)) {
+        finalMediaType = 'file';
+      } else {
+        finalMediaType = 'file';
+      }
+    }
+
+    log?.debug?.(
+      `[DingTalk] uploadMedia called - mediaPath: ${mediaPath}, mediaType: ${mediaType}, finalMediaType: ${finalMediaType}, fileExt: ${fileExt}`
+    );
+
+    const token = await getAccessToken(config, log);
+    log?.debug?.(`[DingTalk] Access token obtained for media upload`);
+
+    if (!fs.existsSync(mediaPath)) {
+      if (log?.error) {
+        log.error(`[DingTalk] File not found: ${mediaPath}`);
+      }
+      return null;
+    }
+    log?.debug?.(`[DingTalk] File exists: ${mediaPath}`);
+
+    const fileStats = fs.statSync(mediaPath);
+    const fileSize = fileStats.size;
+
+    // 文件大小限制检查（根据钉钉API最新规范：2025年）
+    const sizeLimits: Record<string, number> = {
+      image: 2 * 1024 * 1024, // 2MB
+      voice: 2 * 1024 * 1024, // 2MB
+      video: 100 * 1024 * 1024, // 100MB
+      file: 20 * 1024 * 1024, // 20MB
+    };
+
+    const limit = sizeLimits[finalMediaType] || 20 * 1024 * 1024;
+    if (fileSize > limit) {
+      log?.error?.(`[DingTalk] File size ${fileSize} bytes exceeds limit ${limit} bytes for type ${finalMediaType}`);
+      return null;
+    }
+
+    log?.debug?.(`[DingTalk] File stats - fileName: ${fileName}, fileSize: ${fileSize} bytes, limit: ${limit} bytes`);
+
+    // 钉钉最新API规范：使用 FormData 上传，字段名必须是 'media'
+    const formData = new FormData();
+    formData.append('media', fs.createReadStream(mediaPath), {
+      filename: fileName,
+      contentType: 'application/octet-stream',
+    } as any);
+    log?.debug?.(`[DingTalk] FormData created with media field`);
+
+    // 钉钉最新API规范（2025年）：
+    // - 使用 oapi.dingtalk.com 域名
+    // - access_token 和 type 都在 query string 中
+    // - 不要手动设置 Content-Type，让 axios 自动生成 boundary
+    const uploadUrl = `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=${finalMediaType}`;
+    log?.debug?.(`[DingTalk] Starting upload to: https://oapi.dingtalk.com/media/upload [with query params]`);
+
+    const response = await axios.post<{
+      media_id?: string;
+      errcode?: number;
+      errmsg?: string;
+      type?: string;
+      created_at?: number;
+    }>(uploadUrl, formData, {
+      // 不要手动设置 headers，让 axios 根据 FormData 自动生成 multipart/form-data 和 boundary
+      maxBodyLength: Math.max(fileSize * 2, 100 * 1024), // 2倍文件大小或100KB，取较大值（小文件元数据可能很大）
+      timeout: 120000, // 120秒超时，适应大文件上传
+    });
+
+    log?.debug?.(`[DingTalk] Upload response status: ${response.status}`);
+    log?.debug?.(`[DingTalk] Upload response data: ${JSON.stringify(response.data)}`);
+
+    // 钉钉API响应规范：errcode 为 0 表示成功
+    if (response.data?.errcode === 0 && response.data?.media_id) {
+      log?.info?.(
+        `[DingTalk] File uploaded successfully - media_id: ${response.data.media_id}, type: ${response.data.type}`
+      );
+      return {
+        mediaId: response.data.media_id,
+        type: response.data.type || finalMediaType,
+        createdAt: new Date((response.data.created_at || Date.now()) * 1000).toISOString(), // created_at 是秒级时间戳
+      };
+    }
+
+    if (response.data?.errcode) {
+      log?.error?.(`[DingTalk] Upload failed with errcode: ${response.data.errcode}, errmsg: ${response.data.errmsg}`);
+    } else {
+      log?.error?.(`[DingTalk] Upload response missing media_id - data: ${JSON.stringify(response.data)}`);
+    }
+    return null;
+  } catch (err: any) {
+    log?.error?.(`[DingTalk] Failed to upload media - message: ${err.message}`);
+    log?.error?.(
+      `[DingTalk] Upload error details: ${JSON.stringify({
+        message: err.message,
+        code: err.code,
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+      })}`
+    );
+    if (log?.debug) {
+      log.debug(`[DingTalk] Upload error stack: ${err.stack}`);
+    }
+    return null;
+  }
+}
+
 function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
   const msgtype = data.msgtype || 'text';
 
@@ -338,12 +478,102 @@ async function sendBySession(
   config: DingTalkConfig,
   sessionWebhook: string,
   text: string,
-  options: SendMessageOptions = {}
+  options?: SendMessageOptions
+): Promise<AxiosResponse>;
+async function sendBySession(
+  config: DingTalkConfig,
+  sessionWebhook: string,
+  text: string,
+  mediaPath: string,
+  options?: SendMessageOptions
+): Promise<AxiosResponse>;
+async function sendBySession(
+  config: DingTalkConfig,
+  sessionWebhook: string,
+  text: string,
+  textOrMediaPath?: string | SendMessageOptions,
+  optionsOrMediaPath?: SendMessageOptions | string,
+  mediaPathOption?: SendMessageOptions
 ): Promise<AxiosResponse> {
-  const token = await getAccessToken(config, options.log);
-  
-  // Use shared helper function for markdown detection and title extraction
+  const initialLog =
+    typeof textOrMediaPath === 'object'
+      ? textOrMediaPath.log
+      : typeof optionsOrMediaPath === 'object'
+        ? optionsOrMediaPath.log
+        : undefined;
+
+  initialLog?.info?.(`[DingTalk] sendBySession called - sessionWebhook: ${sessionWebhook}`);
+  initialLog?.debug?.(
+    `[DingTalk] sendBySession parameters - text: ${text}, textOrMediaPath type: ${typeof textOrMediaPath}, optionsOrMediaPath type: ${typeof optionsOrMediaPath}`
+  );
+
+  const token = await getAccessToken(config, initialLog);
+
+  let mediaPath: string | undefined;
+  let options: SendMessageOptions = {};
+
+  if (typeof textOrMediaPath === 'object') {
+    options = textOrMediaPath;
+    options.log?.debug?.(`[DingTalk] sendBySession - textOrMediaPath is SendMessageOptions`);
+  } else if (typeof textOrMediaPath === 'string') {
+    mediaPath = textOrMediaPath;
+    options.log?.debug?.(`[DingTalk] sendBySession - textOrMediaPath is string (mediaPath): ${mediaPath}`);
+    if (typeof optionsOrMediaPath === 'object') {
+      options = optionsOrMediaPath;
+      options.log?.debug?.(`[DingTalk] sendBySession - optionsOrMediaPath is SendMessageOptions`);
+    } else if (typeof optionsOrMediaPath === 'string') {
+      mediaPath = optionsOrMediaPath;
+      options = mediaPathOption || {};
+      options.log?.debug?.(`[DingTalk] sendBySession - optionsOrMediaPath is string (mediaPath): ${mediaPath}`);
+    }
+  }
+
+  if (mediaPath) {
+    options.log?.info?.(`[DingTalk] sendBySession - Sending file via session webhook`);
+    options.log?.debug?.(`[DingTalk] sendBySession - mediaPath: ${mediaPath}, sessionWebhook: ${sessionWebhook}`);
+
+    const uploadResult = await uploadMedia(config, mediaPath, 'file', options.log);
+    if (!uploadResult) {
+      options.log?.error?.(`[DingTalk] sendBySession - Failed to upload media file`);
+      throw new Error('[DingTalk] Failed to upload media file');
+    }
+
+    options.log?.info?.(`[DingTalk] sendBySession - File uploaded successfully, mediaId: ${uploadResult.mediaId}`);
+
+    const fileName = path.basename(mediaPath);
+    const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+    options.log?.debug?.(`[DingTalk] sendBySession - fileName: ${fileName}, fileExt: ${fileExt}`);
+
+    const body: FileMessageWebhookResponse = {
+      msgtype: 'file',
+      file: {
+        fileName,
+        mediaId: uploadResult.mediaId,
+        fileType: fileExt,
+      },
+    };
+    if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };
+
+    options.log?.debug?.(`[DingTalk] sendBySession - Request body: ${JSON.stringify(body)}`);
+
+    const result = await axios({
+      url: sessionWebhook,
+      method: 'POST',
+      data: body,
+      headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+    });
+
+    options.log?.info?.(`[DingTalk] sendBySession - File message sent via session webhook`);
+    options.log?.debug?.(`[DingTalk] sendBySession - Response: ${JSON.stringify(result.data)}`);
+
+    return result.data;
+  }
+
+  options.log?.info?.(`[DingTalk] sendBySession - Sending text/markdown message via session webhook`);
+  options.log?.debug?.(`[DingTalk] sendBySession - text length: ${text.length}`);
+
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
+  options.log?.debug?.(`[DingTalk] sendBySession - useMarkdown: ${useMarkdown}, title: ${title}`);
 
   let body: SessionWebhookResponse;
   if (useMarkdown) {
@@ -356,12 +586,91 @@ async function sendBySession(
 
   if (options.atUserId) body.at = { atUserIds: [options.atUserId], isAtAll: false };
 
+  options.log?.debug?.(`[DingTalk] sendBySession - Request body: ${JSON.stringify(body)}`);
+
   const result = await axios({
     url: sessionWebhook,
     method: 'POST',
     data: body,
     headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
   });
+
+  options.log?.info?.(`[DingTalk] sendBySession - Message sent successfully`);
+  options.log?.debug?.(`[DingTalk] sendBySession - Response: ${JSON.stringify(result.data)}`);
+
+  return result.data;
+}
+
+// Send file message via proactive API
+async function sendFileMessage(
+  config: DingTalkConfig,
+  target: string,
+  mediaPath: string,
+  log?: Logger
+): Promise<AxiosResponse> {
+  log?.info?.(`[DingTalk] sendFileMessage called - target: ${target}, mediaPath: ${mediaPath}`);
+  log?.debug?.(`[DingTalk] sendFileMessage config - robotCode: ${config.robotCode}, clientId: ${config.clientId}`);
+
+  log?.info?.(`[DingTalk] Step 1: Uploading media file...`);
+  const uploadResult = await uploadMedia(config, mediaPath, 'file', log);
+
+  if (!uploadResult) {
+    log?.error?.(`[DingTalk] sendFileMessage failed - upload returned null`);
+    throw new Error('[DingTalk] Failed to upload media file');
+  }
+  log?.info?.(`[DingTalk] Step 1: Upload successful - mediaId: ${uploadResult.mediaId}`);
+
+  const token = await getAccessToken(config, log);
+  const isGroup = target.startsWith('cid');
+  log?.info?.(`[DingTalk] Step 2: Determining target type - isGroup: ${isGroup}`);
+
+  const fileName = path.basename(mediaPath);
+  const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+  log?.debug?.(`[DingTalk] File name extracted: ${fileName}, extension: ${fileExt}`);
+
+  const url = isGroup
+    ? 'https://api.dingtalk.com/v1.0/robot/groupMessages/send'
+    : 'https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend';
+  log?.debug?.(`[DingTalk] API URL selected: ${url}`);
+
+  const payload: ProactiveMessagePayload = {
+    robotCode: config.robotCode || config.clientId,
+    msgKey: 'sampleFile',
+    msgParam: JSON.stringify({
+      fileName,
+      mediaId: uploadResult.mediaId,
+      fileType: fileExt,
+    }),
+  };
+
+  if (isGroup) {
+    (payload as any).openConversationId = target;
+  } else {
+    (payload as any).userIds = [target];
+  }
+
+  log?.debug?.(
+    `[DingTalk] Request payload: ${JSON.stringify({
+      robotCode: payload.robotCode,
+      msgKey: payload.msgKey,
+      msgParam: payload.msgParam,
+      ...(isGroup
+        ? { openConversationId: (payload as any).openConversationId }
+        : { userIds: (payload as any).userIds }),
+    })}`
+  );
+  log?.info?.(`[DingTalk] Step 3: Sending file message to DingTalk API...`);
+
+  const result = await axios({
+    url,
+    method: 'POST',
+    data: payload,
+    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+  });
+
+  log?.info?.(`[DingTalk] Step 3: File message sent successfully`);
+  log?.debug?.(`[DingTalk] API response - status: ${result.status}, data: ${JSON.stringify(result.data)}`);
+
   return result.data;
 }
 
@@ -380,13 +689,13 @@ async function sendInteractiveCard(
 
   const token = await getAccessToken(config, options.log);
   const isGroup = conversationId.startsWith('cid');
-  
+
   // Generate unique card business ID using crypto.randomUUID
   const cardBizId = `card_${randomUUID()}`;
-  
+
   // Extract title and detect markdown
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
-  
+
   // Build card data structure with markdown support
   const cardData: InteractiveCardData = {
     config: {
@@ -406,7 +715,7 @@ async function sendInteractiveCard(
       },
     ],
   };
-  
+
   // Build request payload
   const payload: InteractiveCardSendRequest = {
     cardTemplateId: config.cardTemplateId || 'StandardCard',
@@ -414,17 +723,16 @@ async function sendInteractiveCard(
     robotCode,
     cardData: JSON.stringify(cardData),
   };
-  
+
   if (isGroup) {
     payload.openConversationId = conversationId;
   } else {
     payload.singleChatReceiver = JSON.stringify({ userId: conversationId });
   }
-  
+
   // Use configurable API URL with retry logic
-  const apiUrl =
-    config.cardSendApiUrl || 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send';
-  
+  const apiUrl = config.cardSendApiUrl || 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send';
+
   const result = await retryWithBackoff(
     async () => {
       return await axios({
@@ -436,7 +744,7 @@ async function sendInteractiveCard(
     },
     { maxRetries: 3, log: options.log }
   );
-  
+
   // Cache card instance for future updates
   cardInstances.set(cardBizId, {
     cardBizId,
@@ -444,7 +752,7 @@ async function sendInteractiveCard(
     createdAt: Date.now(),
     lastUpdated: Date.now(),
   });
-  
+
   return { cardBizId, response: result.data };
 }
 
@@ -456,10 +764,10 @@ async function updateInteractiveCard(
   options: SendMessageOptions = {}
 ): Promise<any> {
   const token = await getAccessToken(config, options.log);
-  
+
   // Extract title and detect markdown
   const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
-  
+
   // Build updated card data with markdown support
   const cardData: InteractiveCardData = {
     config: {
@@ -479,7 +787,7 @@ async function updateInteractiveCard(
       },
     ],
   };
-  
+
   // Build update request
   const payload: InteractiveCardUpdateRequest = {
     cardBizId,
@@ -488,10 +796,10 @@ async function updateInteractiveCard(
       updateCardDataByKey: false,
     },
   };
-  
+
   // Use configurable API URL with retry logic
   const apiUrl = config.cardUpdateApiUrl || 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards';
-  
+
   try {
     const result = await retryWithBackoff(
       async () => {
@@ -504,21 +812,19 @@ async function updateInteractiveCard(
       },
       { maxRetries: 3, log: options.log }
     );
-    
+
     // Update cache on success
     const instance = cardInstances.get(cardBizId);
     if (instance) {
       instance.lastUpdated = Date.now();
     }
-    
+
     return result.data;
   } catch (err: any) {
     // Remove card from cache on terminal errors (404, 410, etc.)
     const statusCode = err.response?.status;
     if (statusCode === 404 || statusCode === 410 || statusCode === 403) {
-      options.log?.debug?.(
-        `[DingTalk] Removing card ${cardBizId} from cache due to error ${statusCode}`
-      );
+      options.log?.debug?.(`[DingTalk] Removing card ${cardBizId} from cache due to error ${statusCode}`);
       cardInstances.delete(cardBizId);
     }
     throw err;
@@ -535,24 +841,24 @@ async function updateInteractiveCardThrottled(
   const now = Date.now();
   const lastUpdate = cardUpdateTimestamps.get(cardBizId) || 0;
   const timeSinceLastUpdate = now - lastUpdate;
-  
+
   // Clear any existing timeout for this card
   const existingTimeout = cardUpdateTimeouts.get(cardBizId);
   if (existingTimeout) {
     clearTimeout(existingTimeout);
   }
-  
+
   // If enough time has passed, update immediately
   if (timeSinceLastUpdate >= CARD_UPDATE_MIN_INTERVAL) {
     cardUpdateTimestamps.set(cardBizId, now);
     const result = await updateInteractiveCard(config, cardBizId, text, options);
-    
+
     // Set timeout to detect when updates are complete
     const timeout = setTimeout(() => {
       cardUpdateTimeouts.delete(cardBizId);
       options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);
     }, CARD_UPDATE_TIMEOUT);
-    
+
     cardUpdateTimeouts.set(cardBizId, timeout);
     return result;
   } else {
@@ -563,20 +869,20 @@ async function updateInteractiveCardThrottled(
         try {
           cardUpdateTimestamps.set(cardBizId, Date.now());
           const result = await updateInteractiveCard(config, cardBizId, text, options);
-          
+
           // Set inactivity timeout
           const inactivityTimeout = setTimeout(() => {
             cardUpdateTimeouts.delete(cardBizId);
             options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);
           }, CARD_UPDATE_TIMEOUT);
-          
+
           cardUpdateTimeouts.set(cardBizId, inactivityTimeout);
           resolve(result);
         } catch (err) {
           reject(err);
         }
       }, delay);
-      
+
       cardUpdateTimeouts.set(cardBizId, timeout);
     });
   }
@@ -589,33 +895,62 @@ async function sendMessage(
   text: string,
   options: SendMessageOptions & { cardBizId?: string; sessionWebhook?: string } = {}
 ): Promise<{ ok: boolean; cardBizId?: string; error?: string }> {
+  options.log?.info?.(`[DingTalk] sendMessage called - conversationId: ${conversationId}, textLength: ${text.length}`);
+  options.log?.debug?.(
+    `[DingTalk] sendMessage config - messageType: ${config.messageType}, hasSessionWebhook: ${!!options.sessionWebhook}`
+  );
+  options.log?.debug?.(
+    `[DingTalk] sendMessage options - cardBizId: ${options.cardBizId || 'none'}, atUserId: ${options.atUserId || 'none'}`
+  );
+
   try {
     const messageType = config.messageType || 'markdown';
-    
+    options.log?.debug?.(`[DingTalk] sendMessage determined messageType: ${messageType}`);
+
     // If sessionWebhook is provided, use session-based sending (for replies during conversation)
     if (options.sessionWebhook) {
+      options.log?.info?.(`[DingTalk] sendMessage using session-based sending via sendBySession`);
+      options.log?.debug?.(`[DingTalk] sendMessage sessionWebhook: ${options.sessionWebhook}`);
       await sendBySession(config, options.sessionWebhook, text, options);
+      options.log?.info?.(`[DingTalk] sendMessage session-based send completed successfully`);
       return { ok: true };
     }
-    
+
     // For card mode with streaming
     if (messageType === 'card') {
+      options.log?.info?.(`[DingTalk] sendMessage using card mode`);
       if (options.cardBizId) {
-        // Update existing card
+        options.log?.info?.(`[DingTalk] sendMessage updating existing card - cardBizId: ${options.cardBizId}`);
         await updateInteractiveCard(config, options.cardBizId, text, options);
+        options.log?.info?.(`[DingTalk] sendMessage card updated successfully`);
         return { ok: true, cardBizId: options.cardBizId };
       } else {
-        // Create new card
+        options.log?.info?.(`[DingTalk] sendMessage creating new card`);
         const { cardBizId } = await sendInteractiveCard(config, conversationId, text, options);
+        options.log?.info?.(`[DingTalk] sendMessage new card created - cardBizId: ${cardBizId}`);
         return { ok: true, cardBizId };
       }
     }
-    
+
     // For text/markdown mode (backward compatibility)
+    options.log?.info?.(`[DingTalk] sendMessage using ${messageType} mode via sendProactiveMessage`);
     await sendProactiveMessage(config, conversationId, text, options);
+    options.log?.info?.(`[DingTalk] sendMessage ${messageType} sent successfully`);
     return { ok: true };
   } catch (err: any) {
-    options.log?.error?.(`[DingTalk] Send message failed: ${err.message}`);
+    options.log?.error?.(`[DingTalk] sendMessage failed: ${err.message}`);
+    options.log?.error?.(
+      `[DingTalk] sendMessage error details: ${JSON.stringify({
+        message: err.message,
+        code: err.code,
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+      })}`
+    );
+    if (options.log?.debug) {
+      options.log.debug(`[DingTalk] sendMessage error stack: ${err.stack}`);
+    }
     return { ok: false, error: err.message };
   }
 }
@@ -625,16 +960,26 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
   const rt = getDingTalkRuntime();
 
+  log?.info?.(`[DingTalk] handleDingTalkMessage called - accountId: ${accountId}, msgId: ${data.msgId || 'unknown'}`);
+  log?.debug?.(`[DingTalk] handleDingTalkMessage sessionWebhook: ${sessionWebhook || 'none'}`);
   log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
 
   // 1. 过滤机器人自身消息
+  log?.debug?.(`[DingTalk] Checking self-message - senderId: ${data.senderId}, chatbotUserId: ${data.chatbotUserId}`);
   if (data.senderId === data.chatbotUserId || data.senderStaffId === data.chatbotUserId) {
-    log?.debug?.('[DingTalk] Ignoring robot self-message');
+    log?.info?.('[DingTalk] Ignoring robot self-message');
     return;
   }
+  log?.debug?.('[DingTalk] Message is not from robot itself');
 
   const content = extractMessageContent(data);
-  if (!content.text) return;
+  log?.info?.(`[DingTalk] Message extracted - type: ${content.messageType}, hasText: ${!!content.text}`);
+  log?.debug?.(`[DingTalk] Message content: "${content.text?.slice(0, 100)}..."`);
+
+  if (!content.text) {
+    log?.warn?.('[DingTalk] No text content in message, skipping');
+    return;
+  }
 
   const isDirect = data.conversationType === '1';
   const senderId = data.senderStaffId || data.senderId;
@@ -642,65 +987,99 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   const groupId = data.conversationId;
   const groupName = data.conversationTitle || 'Group';
 
+  log?.info?.(`[DingTalk] Message context - isDirect: ${isDirect}, senderId: ${senderId}, senderName: ${senderName}`);
+  log?.debug?.(`[DingTalk] Group info - groupId: ${groupId}, groupName: ${groupName}`);
+
   // 2. Check authorization for direct messages based on dmPolicy
   let commandAuthorized = true;
   if (isDirect) {
     const dmPolicy = dingtalkConfig.dmPolicy || 'open';
     const allowFrom = dingtalkConfig.allowFrom || [];
-    
+
+    log?.info?.(`[DingTalk] DM policy check - dmPolicy: ${dmPolicy}, allowFrom count: ${allowFrom.length}`);
+
     if (dmPolicy === 'allowlist') {
       const normalizedAllowFrom = normalizeAllowFrom(allowFrom);
       const isAllowed = isSenderAllowed({ allow: normalizedAllowFrom, senderId });
-      
+
+      log?.debug?.(`[DingTalk] Allowlist check - senderId: ${senderId}, isAllowed: ${isAllowed}`);
+
       if (!isAllowed) {
-        log?.debug?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
-        
+        log?.info?.(`[DingTalk] DM blocked: senderId=${senderId} not in allowlist (dmPolicy=allowlist)`);
+
         // Notify user with their sender ID so they can request access
         try {
-          await sendBySession(dingtalkConfig, sessionWebhook, 
-            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`, 
+          log?.info?.('[DingTalk] Sending access denied notification');
+          await sendBySession(
+            dingtalkConfig,
+            sessionWebhook,
+            `⛔ 访问受限\n\n您的用户ID：\`${senderId}\`\n\n请联系管理员将此ID添加到允许列表中。`,
             { log }
           );
+          log?.info?.('[DingTalk] Access denied notification sent successfully');
         } catch (err: any) {
-          log?.debug?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
+          log?.error?.(`[DingTalk] Failed to send access denied message: ${err.message}`);
         }
-        
+
         return;
       }
-      
-      log?.debug?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
+
+      log?.info?.(`[DingTalk] DM authorized: senderId=${senderId} in allowlist`);
     } else if (dmPolicy === 'pairing') {
-      // For pairing mode, SDK will handle the authorization
-      // Set commandAuthorized to true to let SDK check pairing status
+      log?.info?.('[DingTalk] DM policy is pairing, SDK will handle authorization');
       commandAuthorized = true;
     } else {
-      // 'open' policy - allow all
+      log?.info?.('[DingTalk] DM policy is open, allowing all messages');
       commandAuthorized = true;
     }
   }
 
+  // 3. Handle media files
   let mediaPath: string | undefined;
   let mediaType: string | undefined;
   if (content.mediaPath && dingtalkConfig.robotCode) {
+    log?.info?.(
+      `[DingTalk] Received media message - downloadCode: ${content.mediaPath}, messageType: ${content.messageType}`
+    );
+    log?.debug?.(`[DingTalk] Downloading media with robotCode: ${dingtalkConfig.robotCode}`);
     const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
     if (media) {
       mediaPath = media.path;
       mediaType = media.mimeType;
+      log?.info?.(`[DingTalk] Media downloaded successfully - path: ${mediaPath}, mimeType: ${mediaType}`);
+    } else {
+      log?.warn?.(`[DingTalk] Failed to download media - downloadCode: ${content.mediaPath}`);
     }
+  } else {
+    log?.debug?.(
+      `[DingTalk] No media to download - hasMediaPath: ${!!content.mediaPath}, hasRobotCode: ${!!dingtalkConfig.robotCode}`
+    );
   }
 
+  // 4. Resolve agent route
+  log?.info?.('[DingTalk] Resolving agent route...');
   const route = rt.channel.routing.resolveAgentRoute({
     cfg,
     channel: 'dingtalk',
     accountId,
     peer: { kind: isDirect ? 'dm' : 'group', id: isDirect ? senderId : groupId },
   });
+  log?.info?.(`[DingTalk] Agent route resolved - agentId: ${route.agentId}, sessionKey: ${route.sessionKey}`);
+  log?.debug?.(`[DingTalk] Route details - mainSessionKey: ${route.mainSessionKey}`);
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
-  const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
-  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
+  log?.debug?.(`[DingTalk] Session store path: ${storePath}`);
 
+  const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
+  log?.debug?.(`[DingTalk] Envelope options: ${JSON.stringify(envelopeOptions)}`);
+
+  const previousTimestamp = rt.channel.session.readSessionUpdatedAt({ storePath, sessionKey: route.sessionKey });
+  log?.debug?.(`[DingTalk] Previous session timestamp: ${previousTimestamp || 'none'}`);
+
+  // 5. Format inbound envelope
   const fromLabel = isDirect ? `${senderName} (${senderId})` : `${groupName} - ${senderName}`;
+  log?.debug?.(`[DingTalk] From label: ${fromLabel}`);
+
   const body = rt.channel.reply.formatInboundEnvelope({
     channel: 'DingTalk',
     from: fromLabel,
@@ -711,8 +1090,13 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     previousTimestamp,
     envelope: envelopeOptions,
   });
+  log?.debug?.(`[DingTalk] Inbound envelope formatted`);
 
   const to = isDirect ? senderId : groupId;
+  log?.debug?.(`[DingTalk] Target (to): ${to}`);
+
+  // 6. Finalize context
+  log?.info?.('[DingTalk] Finalizing inbound context...');
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: content.text,
@@ -737,67 +1121,129 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     OriginatingChannel: 'dingtalk',
     OriginatingTo: to,
   });
+  log?.info?.(`[DingTalk] Inbound context finalized - SessionKey: ${ctx.SessionKey}`);
 
+  // 7. Record session
+  log?.info?.('[DingTalk] Recording inbound session...');
   await rt.channel.session.recordInboundSession({
     storePath,
     sessionKey: ctx.SessionKey || route.sessionKey,
     ctx,
     updateLastRoute: { sessionKey: route.mainSessionKey, channel: 'dingtalk', to, accountId },
   });
+  log?.info?.('[DingTalk] Inbound session recorded successfully');
 
   log?.info?.(`[DingTalk] Inbound: from=${senderName} text="${content.text.slice(0, 50)}..."`);
 
-  // Feedback: Thinking...
+  // 8. Send "thinking" feedback
   let currentCardBizId: string | undefined;
   const useCardMode = dingtalkConfig.messageType === 'card';
-  
+
+  log?.info?.(
+    `[DingTalk] Reply mode - useCardMode: ${useCardMode}, showThinking: ${dingtalkConfig.showThinking !== false}`
+  );
+
   if (dingtalkConfig.showThinking !== false) {
+    log?.info?.('[DingTalk] Sending "thinking" message...');
     try {
       if (useCardMode) {
-        // For card mode, send initial card with thinking message
+        log?.info?.('[DingTalk] Sending thinking card...');
         const result = await sendInteractiveCard(dingtalkConfig, to, '🤔 思考中，请稍候...', { log });
         currentCardBizId = result.cardBizId;
+        log?.info?.(`[DingTalk] Thinking card sent - cardBizId: ${currentCardBizId}`);
       } else {
-        // For text/markdown mode, send via session webhook
+        log?.info?.('[DingTalk] Sending thinking message via session webhook...');
         await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候...', {
           atUserId: !isDirect ? senderId : null,
           log,
         });
+        log?.info?.('[DingTalk] Thinking message sent successfully');
       }
     } catch (err: any) {
-      log?.debug?.(`[DingTalk] Thinking message failed: ${err.message}`);
+      log?.error?.(`[DingTalk] Thinking message failed: ${err.message}`);
+      log?.debug?.(`[DingTalk] Thinking message error: ${err.stack}`);
     }
   }
 
+  // 9. Create reply dispatcher
+  log?.info?.('[DingTalk] Creating reply dispatcher...');
   const { dispatcher, replyOptions, markDispatchIdle } = rt.channel.reply.createReplyDispatcherWithTyping({
     responsePrefix: '',
     deliver: async (payload: any) => {
       try {
+        log?.debug?.(`[DingTalk] Deliver payload received: ${JSON.stringify(payload)}`);
         const textToSend = payload.markdown || payload.text;
-        if (!textToSend) return { ok: true };
-        
-        if (useCardMode) {
-          // Card mode: update existing card or create new one (throttled)
-          if (currentCardBizId) {
-            await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
-          } else {
-            const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
-            currentCardBizId = result.cardBizId;
+        log?.debug?.(`[DingTalk] Deliver called - textLength: ${textToSend?.length || 0}`);
+
+        // Check for media files (single or multiple)
+        const hasMediaUrls = payload.mediaUrls && Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0;
+        const hasMediaUrl = payload.mediaUrl && typeof payload.mediaUrl === 'string';
+
+        log?.debug?.(`[DingTalk] Media check - hasMediaUrls: ${hasMediaUrls}, hasMediaUrl: ${hasMediaUrl}`);
+
+        // Send media files first if present
+        if (hasMediaUrls) {
+          log?.info?.(`[DingTalk] Sending ${payload.mediaUrls.length} media file(s) from mediaUrls`);
+          for (const mediaUrl of payload.mediaUrls) {
+            try {
+              log?.info?.(`[DingTalk] Sending media file: ${mediaUrl}`);
+              await sendFileMessage(dingtalkConfig, to, mediaUrl, log);
+              log?.info?.(`[DingTalk] Media file sent successfully: ${mediaUrl}`);
+            } catch (err: any) {
+              log?.error?.(`[DingTalk] Failed to send media file ${mediaUrl}: ${err.message}`);
+              // Continue sending other files even if one fails
+            }
           }
-        } else {
-          // Text/markdown mode: send via session webhook
-          await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
-            atUserId: !isDirect ? senderId : null,
-            log,
-          });
+        } else if (hasMediaUrl) {
+          log?.info?.(`[DingTalk] Sending single media file from mediaUrl: ${payload.mediaUrl}`);
+          try {
+            await sendFileMessage(dingtalkConfig, to, payload.mediaUrl, log);
+            log?.info?.(`[DingTalk] Media file sent successfully: ${payload.mediaUrl}`);
+          } catch (err: any) {
+            log?.error?.(`[DingTalk] Failed to send media file ${payload.mediaUrl}: ${err.message}`);
+          }
         }
+
+        // Then send text message if present
+        if (textToSend) {
+          log?.info?.('[DingTalk] Sending text message');
+          if (useCardMode) {
+            log?.info?.(`[DingTalk] Delivering via card mode - hasCardBizId: ${!!currentCardBizId}`);
+            if (currentCardBizId) {
+              log?.debug?.(`[DingTalk] Updating existing card - cardBizId: ${currentCardBizId}`);
+              await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
+              log?.debug?.('[DingTalk] Card updated successfully');
+            } else {
+              log?.info?.('[DingTalk] Creating new card for delivery');
+              const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
+              currentCardBizId = result.cardBizId;
+              log?.info?.(`[DingTalk] New card created - cardBizId: ${currentCardBizId}`);
+            }
+          } else {
+            log?.info?.('[DingTalk] Delivering via session webhook');
+            await sendBySession(dingtalkConfig, sessionWebhook, textToSend, {
+              atUserId: !isDirect ? senderId : null,
+              log,
+            });
+            log?.debug?.('[DingTalk] Message delivered via session webhook');
+          }
+        }
+
         return { ok: true };
       } catch (err: any) {
-        log?.error?.(`[DingTalk] Reply failed: ${err.message}`);
+        log?.error?.(`[DingTalk] Reply delivery failed: ${err.message}`);
+        log?.error?.(
+          `[DingTalk] Delivery error details: ${JSON.stringify({
+            message: err.message,
+            code: err.code,
+            status: err.response?.status,
+          })}`
+        );
         return { ok: false, error: err.message };
       }
     },
   });
+  log?.info?.('[DingTalk] Reply dispatcher created successfully');
 
   try {
     await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
@@ -896,15 +1342,38 @@ export const dingtalkPlugin = {
       }
     },
     sendMedia: async ({ cfg, to, mediaPath, accountId, log }: any) => {
+      log?.info?.(`[DingTalk] outbound.sendMedia called - to: ${to}, mediaPath: ${mediaPath}, accountId: ${accountId}`);
+
       const config = getConfig(cfg, accountId);
       if (!config.clientId) {
+        log?.error?.(`[DingTalk] outbound.sendMedia - clientId not configured`);
         return { ok: false, error: 'DingTalk not configured' };
       }
+      log?.debug?.(
+        `[DingTalk] outbound.sendMedia - Config found - clientId: ${config.clientId}, robotCode: ${config.robotCode}`
+      );
+
       try {
-        const mediaDescription = `[媒体消息: ${mediaPath}]`;
-        const result = await sendProactiveMessage(config, to, mediaDescription, { log });
+        log?.info?.(`[DingTalk] outbound.sendMedia - Calling sendFileMessage...`);
+        const result = await sendFileMessage(config, to, mediaPath, log);
+        log?.info?.(`[DingTalk] outbound.sendMedia - File sent successfully`);
+        log?.debug?.(`[DingTalk] outbound.sendMedia - Result: ${JSON.stringify(result)}`);
         return { ok: true, data: result };
       } catch (err: any) {
+        log?.error?.(`[DingTalk] outbound.sendMedia - Failed to send file`);
+        log?.error?.(`[DingTalk] outbound.sendMedia - Error: ${err.message}`);
+        log?.error?.(
+          `[DingTalk] outbound.sendMedia - Error details: ${JSON.stringify({
+            message: err.message,
+            code: err.code,
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+          })}`
+        );
+        if (log?.debug) {
+          log.debug(`[DingTalk] outbound.sendMedia - Error stack: ${err.stack}`);
+        }
         return { ok: false, error: err.response?.data || err.message };
       }
     },
@@ -1005,9 +1474,11 @@ export const dingtalkPlugin = {
  * Public low-level API exports for the DingTalk channel plugin.
  *
  * - {@link sendBySession} sends a message to DingTalk using a session/webhook
- *   (e.g. replies within an existing conversation).
+ *   (e.g. replies within an existing conversation). Supports text, markdown, and file messages.
  * - {@link sendProactiveMessage} sends a proactive/outbound message to DingTalk
  *   without requiring an existing inbound session.
+ * - {@link sendFileMessage} sends a file message to DingTalk.
+ * - {@link uploadMedia} uploads a media file to DingTalk and returns mediaId.
  * - {@link sendInteractiveCard} sends an interactive card to DingTalk
  *   (returns cardBizId for streaming updates).
  * - {@link updateInteractiveCard} updates an existing interactive card
@@ -1025,6 +1496,8 @@ export const dingtalkPlugin = {
 export {
   sendBySession,
   sendProactiveMessage,
+  sendFileMessage,
+  uploadMedia,
   sendInteractiveCard,
   updateInteractiveCard,
   updateInteractiveCardThrottled,

@@ -4,7 +4,26 @@ package-lock.json
 
 # Build files
 dist/
+build/
+lib/
+out/
 *.js.map
+
+# Compiled JavaScript files (source is TypeScript)
+*.js
+!jest.config.js
+!eslint.config.js
+
+# TypeScript declaration files
+*.d.ts
+*.d.ts.map
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+.nyc_output/
 
 # Logs
 logs
