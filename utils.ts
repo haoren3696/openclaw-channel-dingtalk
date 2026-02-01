@@ -104,3 +104,96 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
 
   throw new Error('Retry exhausted without returning');
 }
+
+/**
+ * Parse stack trace to get caller file and line information
+ * Returns { filename, line } or null if parsing fails
+ */
+function parseCallerLocation(stack: string): { filename: string; line: number } | null {
+  const lines = stack.split('\n');
+  // Skip first 3 lines: Error message + this function + wrapper function
+  for (let i = 3; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Match patterns like: at functionName (file:line:column) or at file:line:column
+    const match = line.match(/at\s+(?:.+\s+)?\(([^)]+)\)|at\s+(.+)/);
+    if (match) {
+      const location = match[1] || match[2];
+      if (location) {
+        // Extract filename and line from location like "file.ts:123:45" or "/path/to/file.ts:123:45"
+        const parts = location.split(':');
+        if (parts.length >= 2) {
+          const filename = path.basename(parts[0]);
+          const lineNum = parseInt(parts[1], 10);
+          if (!isNaN(lineNum)) {
+            return { filename, line: lineNum };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Create a logger wrapper that adds file and line number information to all log messages
+ * Usage: const log = createLoggerWithLocation(originalLog, __filename);
+ *        log.info?.('Message'); // Outputs: [file.ts:123] Message
+ */
+export function createLoggerWithLocation(
+  originalLog: Logger | undefined,
+  defaultFilename?: string
+): Logger | undefined {
+  if (!originalLog) {
+    return undefined;
+  }
+
+  const filename = defaultFilename ? path.basename(defaultFilename) : 'unknown';
+
+  function getLocation(): string {
+    const err = new Error();
+    const location = parseCallerLocation(err.stack || '');
+    if (location) {
+      return `[${location.filename}:${location.line}]`;
+    }
+    return `[${filename}:?]`;
+  }
+
+  function wrapLogMethod(method: 'info' | 'debug' | 'error' | 'warn') {
+    return function (this: any, message?: string, ...args: any[]) {
+      if (!originalLog) return;
+
+      const location = getLocation();
+      const prefix = `${location}`;
+
+      // Format the message with location prefix
+      let formattedMessage: string;
+      if (typeof message === 'string') {
+        formattedMessage = `${prefix} ${message}`;
+      } else {
+        formattedMessage = prefix;
+      }
+
+      // Call original method
+      const originalMethod = originalLog[method];
+      if (originalMethod) {
+        return originalMethod.call(this, formattedMessage, ...args);
+      }
+    };
+  }
+
+  return {
+    info: wrapLogMethod('info'),
+    debug: wrapLogMethod('debug'),
+    error: wrapLogMethod('error'),
+    warn: wrapLogMethod('warn'),
+  } as Logger;
+}
+
+/**
+ * Wrap an existing logger with file/line location info
+ * This is a convenience wrapper that can be used inline
+ * Usage: logWithLocation(log).info('Message');
+ */
+export function logWithLocation(log: Logger | undefined, defaultFilename?: string): Logger | undefined {
+  return createLoggerWithLocation(log, defaultFilename);
+}

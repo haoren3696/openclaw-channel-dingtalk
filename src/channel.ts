@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import FormData from 'form-data';
 import type { OpenClawConfig } from 'openclaw/plugin-sdk';
 import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
-import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
+import { cleanupOrphanedTempFiles, retryWithBackoff, createLoggerWithLocation } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
 import type {
@@ -15,8 +15,11 @@ import type {
   TokenInfo,
   DingTalkInboundMessage,
   MessageContent,
+  RichTextContent,
+  RichTextMediaFile,
+  MergedMessageEntry,
   SendMessageOptions,
-  MediaFile,
+  SessionMediaFile,
   HandleDingTalkMessageParams,
   ProactiveMessagePayload,
   SessionWebhookResponse,
@@ -49,6 +52,29 @@ const CARD_UPDATE_TIMEOUT = 60000; // 60 seconds of inactivity = finalized
 
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Message merge cache for batch processing
+const messageMergeCache = new Map<string, MergedMessageEntry>();
+const MESSAGE_MERGE_WINDOW_MS = 2000; // 2 seconds merge window
+const MESSAGE_MERGE_MAX_MESSAGES = 5; // Max 5 messages per merge
+
+// Periodic cleanup of stale merge cache entries (every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  // Clean up entries older than 10 seconds (buffer beyond 2s window)
+  messageMergeCache.forEach((entry, key) => {
+    // Clean up entries older than 10 seconds (5s buffer beyond 2s window + 3s processing)
+    if (now - entry.startTime > 10000) {
+      clearTimeout(entry.timer);
+      messageMergeCache.delete(key);
+      cleaned++;
+    }
+  });
+  if (cleaned > 0) {
+    console.log(`[DingTalk] Cleaned up ${cleaned} stale merge cache entries`);
+  }
+}, 300000);
 
 // Authorization helpers
 type NormalizedAllowFrom = {
@@ -261,35 +287,224 @@ async function sendProactiveMessage(
   return result.data;
 }
 
-// Download media file
-async function downloadMedia(config: DingTalkConfig, downloadCode: string, log?: Logger): Promise<MediaFile | null> {
-  if (!config.robotCode) {
-    if (log?.error) {
-      log.error('[DingTalk] downloadMedia requires robotCode to be configured.');
+/**
+ * 文件名安全化处理
+ * 移除危险字符，保留合法文件名
+ */
+function sanitizeFileName(fileName: string): string {
+  return fileName.replace(/[\\/:*?"<>|]/g, '_').substring(0, 255);
+}
+
+/**
+ * 清理会话中过期的媒体文件
+ * 保留时间 = 会话超时时间 × 2
+ * 仅清理当前会话的文件，不限制文件数量
+ */
+function cleanupSessionMedia(storePath: string, sessionKey: string, sessionTimeout: number, log?: Logger): void {
+  const mediaDir = path.join(storePath, 'sessions', sessionKey, 'media');
+
+  if (!fs.existsSync(mediaDir)) {
+    return;
+  }
+
+  const retentionTime = sessionTimeout * 2;
+  const cutoffTime = Date.now() - retentionTime;
+  let cleanedCount = 0;
+
+  try {
+    const files = fs.readdirSync(mediaDir);
+
+    for (const fileName of files) {
+      const filePath = path.join(mediaDir, fileName);
+
+      try {
+        const stats = fs.statSync(filePath);
+        const fileTime = stats.mtime.getTime();
+
+        if (fileTime < cutoffTime) {
+          fs.unlinkSync(filePath);
+          cleanedCount++;
+          log?.info?.(`[DingTalk] Cleaned up expired media file: ${fileName}`);
+        }
+      } catch (err: any) {
+        log?.info?.(`[DingTalk] Failed to cleanup file ${fileName}: ${err.message}`);
+      }
     }
+
+    if (cleanedCount > 0) {
+      log?.info?.(
+        `[DingTalk] Media cleanup completed - removed ${cleanedCount} expired file(s) from session ${sessionKey}`
+      );
+    }
+  } catch (err: any) {
+    log?.info?.(`[DingTalk] Failed to cleanup session media: ${err.message}`);
+  }
+}
+
+// Internal function to attempt a single download
+async function attemptSingleDownload(
+  config: DingTalkConfig,
+  downloadCode: string,
+  sessionKey: string,
+  storePath: string,
+  originalFileName: string,
+  msgId: string,
+  log?: Logger,
+  isRetry: boolean = false
+): Promise<SessionMediaFile | null> {
+  if (!config.robotCode) {
+    log?.info?.('[DingTalk] downloadMedia requires robotCode to be configured.');
     return null;
   }
+
   try {
     const token = await getAccessToken(config, log);
+
+    // DEBUG: Log request details
+    const attemptLabel = isRetry ? '[RETRY]' : '[PRIMARY]';
+    log?.info?.(`[DingTalk] [DEBUG] Download media request ${attemptLabel}:`);
+    log?.info?.(`[DingTalk] [DEBUG] - API URL: https://api.dingtalk.com/v1.0/robot/messageFiles/download`);
+    log?.info?.(
+      `[DingTalk] [DEBUG] - downloadCode: ${downloadCode.substring(0, 20)}... (${downloadCode.length} chars)`
+    );
+    log?.info?.(
+      `[DingTalk] [DEBUG] - robotCode: ${config.robotCode ? config.robotCode.substring(0, 10) + '...' : 'NOT SET'}`
+    );
+    log?.info?.(`[DingTalk] [DEBUG] - sessionKey: ${sessionKey}`);
+    log?.info?.(`[DingTalk] [DEBUG] - originalFileName: ${originalFileName}`);
+    log?.info?.(`[DingTalk] [DEBUG] - Has access token: ${!!token}`);
+
     const response = await axios.post<{ downloadUrl?: string }>(
       'https://api.dingtalk.com/v1.0/robot/messageFiles/download',
       { downloadCode, robotCode: config.robotCode },
       { headers: { 'x-acs-dingtalk-access-token': token } }
     );
+
+    // DEBUG: Log response details
+    log?.info?.(`[DingTalk] [DEBUG] Download media response ${attemptLabel} - status: ${response.status}`);
+    log?.info?.(`[DingTalk] [DEBUG] Response data keys: ${Object.keys(response.data || {}).join(', ')}`);
+
     const downloadUrl = response.data?.downloadUrl;
-    if (!downloadUrl) return null;
-    const mediaResponse = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
-    const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
-    const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
-    const tempPath = path.join(os.tmpdir(), `dingtalk_${Date.now()}.${ext}`);
-    fs.writeFileSync(tempPath, Buffer.from(mediaResponse.data as ArrayBuffer));
-    return { path: tempPath, mimeType: contentType };
-  } catch (err: any) {
-    if (log?.error) {
-      log.error('[DingTalk] Failed to download media:', err.message);
+    if (!downloadUrl) {
+      log?.info?.(
+        `[DingTalk] [DEBUG] No downloadUrl in response ${attemptLabel}. Full response: ${JSON.stringify(response.data)}`
+      );
+      return null;
     }
+
+    log?.info?.(`[DingTalk] [DEBUG] Got downloadUrl ${attemptLabel}: ${downloadUrl.substring(0, 50)}...`);
+
+    const mediaResponse = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer',
+      timeout: 60000,
+    });
+
+    const contentType = mediaResponse.headers['content-type'] || 'application/octet-stream';
+
+    // 构建会话媒体目录路径
+    const storeDir = path.dirname(storePath);
+    const mediaDir = path.join(storeDir, 'media');
+    let filePath: string;
+    let isFallback = false;
+
+    // 尝试创建会话目录，失败则回退到临时目录
+    try {
+      if (!fs.existsSync(mediaDir)) {
+        fs.mkdirSync(mediaDir, { recursive: true });
+        log?.info?.(`[DingTalk] Created session media directory: ${mediaDir}`);
+      }
+
+      // 使用原始文件名（同名直接覆盖）
+      const safeFileName = sanitizeFileName(originalFileName);
+      filePath = path.join(mediaDir, safeFileName);
+      isFallback = false;
+    } catch (dirErr: any) {
+      // 目录创建失败，回退到临时目录
+      log?.info?.(`[DingTalk] Failed to create session directory, falling back to temp: ${dirErr.message}`);
+      // 使用原始文件名（确保已清理）
+      const safeFileName = sanitizeFileName(originalFileName);
+      filePath = path.join(os.tmpdir(), safeFileName);
+      isFallback = true;
+    }
+
+    // 写入文件
+    fs.writeFileSync(filePath, Buffer.from(mediaResponse.data as ArrayBuffer));
+
+    // 计算过期时间：会话超时 × 2（默认值1小时，在调用处传入实际值）
+    const sessionTimeout = 3600000; // 默认值
+    const now = Date.now();
+
+    log?.info?.(`[DingTalk] Media downloaded: ${filePath} (fallback: ${isFallback})`);
+
+    return {
+      path: filePath,
+      mimeType: contentType,
+      msgId,
+      fileName: path.basename(filePath),
+      downloadedAt: now,
+      expiresAt: now + sessionTimeout * 2,
+    };
+  } catch (err: any) {
+    // DEBUG: Enhanced error logging for HTTP 500
+    const statusCode = err.response?.status;
+    const responseData = err.response?.data;
+    const errorCode = err.code;
+
+    log?.info?.(`[DingTalk] [DEBUG] Download media FAILED:`);
+    log?.info?.(`[DingTalk] [DEBUG] - Error message: ${err.message}`);
+    log?.info?.(`[DingTalk] [DEBUG] - HTTP status: ${statusCode || 'N/A'}`);
+    log?.info?.(`[DingTalk] [DEBUG] - Error code: ${errorCode || 'N/A'}`);
+    log?.info?.(`[DingTalk] [DEBUG] - Response data: ${JSON.stringify(responseData) || 'N/A'}`);
+    log?.info?.(
+      `[DingTalk] [DEBUG] - Request config: ${JSON.stringify({
+        url: err.config?.url,
+        method: err.config?.method,
+        hasToken: !!err.config?.headers?.['x-acs-dingtalk-access-token'],
+      })}`
+    );
+
+    if (statusCode === 500) {
+      log?.info?.(`[DingTalk] [DEBUG] HTTP 500 error - This usually means the downloadCode is expired or invalid`);
+      log?.info?.(
+        `[DingTalk] [DEBUG] Download code age: Code was generated when message was received, may have expired`
+      );
+    }
+
+    log?.info?.(`[DingTalk] Failed to download media: ${err.message}`);
     return null;
   }
+}
+
+// Main download function
+async function downloadMedia(
+  config: DingTalkConfig,
+  downloadCode: string,
+  sessionKey: string,
+  storePath: string,
+  originalFileName: string,
+  msgId: string,
+  log?: Logger
+): Promise<SessionMediaFile | null> {
+  // Download with downloadCode
+  log?.info?.(`[DingTalk] Starting media download...`);
+  const result = await attemptSingleDownload(
+    config,
+    downloadCode,
+    sessionKey,
+    storePath,
+    originalFileName,
+    msgId,
+    log,
+    false
+  );
+
+  if (result) {
+    log?.info?.(`[DingTalk] Media downloaded successfully`);
+    return result;
+  }
+
+  log?.info?.(`[DingTalk] Download failed for code: ${downloadCode.substring(0, 20)}...`);
+  return null;
 }
 
 // Upload media file to DingTalk
@@ -424,23 +639,167 @@ async function uploadMedia(
   }
 }
 
-function extractMessageContent(data: DingTalkInboundMessage): MessageContent {
+function extractMessageContent(data: DingTalkInboundMessage): MessageContent | RichTextContent {
   const msgtype = data.msgtype || 'text';
+
+  // 【调试日志】函数入口 - 显示完整输入数据
+  console.log(`[DEBUG] extractMessageContent called with msgtype: ${msgtype}`);
+  console.log(`[DEBUG] Full data object keys: ${Object.keys(data).join(', ')}`);
+  console.log(`[DEBUG] data.content exists: ${!!data.content}`);
+  if (data.content) {
+    console.log(`[DEBUG] data.content keys: ${Object.keys(data.content).join(', ')}`);
+    console.log(`[DEBUG] data.content.richText exists: ${!!data.content.richText}`);
+    if (data.content.richText) {
+      console.log(`[DEBUG] richText is array: ${Array.isArray(data.content.richText)}`);
+      console.log(`[DEBUG] richText length: ${data.content.richText.length}`);
+      console.log(`[DEBUG] richText full content: ${JSON.stringify(data.content.richText, null, 2)}`);
+    }
+  }
 
   // Logic for different message types
   if (msgtype === 'text') {
+    console.log(`[DEBUG] Processing text message, content: ${data.text?.content}`);
     return { text: data.text?.content?.trim() || '', messageType: 'text' };
   }
 
-  // Improved richText parsing: join all text/at components
+  // Improved richText parsing: support text, at, image/picture, file, link components
   if (msgtype === 'richText') {
+    console.log(`[DEBUG] Entering richText processing block`);
     const richTextParts = data.content?.richText || [];
+    console.log(`[DEBUG] richTextParts assigned, length: ${richTextParts.length}`);
+
     let text = '';
-    for (const part of richTextParts) {
-      if (part.type === 'text' && part.text) text += part.text;
-      if (part.type === 'at' && part.atName) text += `@${part.atName} `;
+    const mediaFiles: RichTextMediaFile[] = [];
+    const componentCounts: Record<string, number> = {};
+
+    console.log(`[DEBUG] Starting to process ${richTextParts.length} richText parts`);
+
+    for (let i = 0; i < richTextParts.length; i++) {
+      const part = richTextParts[i];
+      console.log(`[DEBUG] Processing part ${i + 1}/${richTextParts.length}:`, JSON.stringify(part));
+
+      // 如果没有 type 字段但有 text 字段，默认为 text 类型
+      let partType = part.type;
+      if (!partType && part.text !== undefined) {
+        partType = 'text';
+      }
+      partType = partType || 'unknown';
+
+      componentCounts[partType] = (componentCounts[partType] || 0) + 1;
+
+      console.log(`[DEBUG] Part ${i + 1} type: ${partType}`);
+      console.log(`[DEBUG] Part ${i + 1} keys: ${Object.keys(part).join(', ')}`);
+
+      switch (partType) {
+        case 'text':
+          console.log(`[DEBUG] Processing text component, text value: "${part.text}"`);
+          if (part.text) {
+            text += part.text;
+            console.log(`[DEBUG] Text appended, current text length: ${text.length}`);
+          } else {
+            console.log(`[DEBUG] Text component has no text value`);
+          }
+          break;
+
+        case 'at':
+          console.log(`[DEBUG] Processing at component, atName: "${part.atName}", atUserId: "${part.atUserId}"`);
+          if (part.atName) {
+            text += `@${part.atName} `;
+            console.log(`[DEBUG] At appended, current text: "${text}"`);
+          }
+          break;
+
+        case 'picture': {
+          // 直接使用 downloadCode 下载图片，弃用 pictureDownloadCode
+          console.log(`[DEBUG] Processing picture component, downloadCode: "${part.downloadCode}"`);
+
+          if (part.downloadCode) {
+            text += '[图片] ';
+            mediaFiles.push({
+              downloadCode: part.downloadCode,
+              fileName: part.fileName || `image_${mediaFiles.length + 1}`,
+              type: 'image',
+            });
+            console.log(`[DEBUG] Picture added with downloadCode`);
+            console.log(`[DEBUG] Total media files: ${mediaFiles.length}`);
+          } else {
+            console.log(`[DEBUG] Picture component has no downloadCode`);
+          }
+          break;
+        }
+
+        case 'image':
+          // 兼容旧格式，使用 downloadCode
+          console.log(
+            `[DEBUG] Processing image component, downloadCode: "${part.downloadCode}", fileName: "${part.fileName}"`
+          );
+          if (part.downloadCode) {
+            text += '[图片] ';
+            mediaFiles.push({
+              downloadCode: part.downloadCode,
+              fileName: part.fileName,
+              type: 'image',
+            });
+            console.log(`[DEBUG] Image added to mediaFiles, count now: ${mediaFiles.length}`);
+          } else {
+            console.log(`[DEBUG] Image component has no downloadCode`);
+          }
+          break;
+
+        case 'file':
+          console.log(
+            `[DEBUG] Processing file component, downloadCode: "${part.downloadCode}", fileName: "${part.fileName}"`
+          );
+          if (part.downloadCode) {
+            text += `[文件: ${part.fileName || '文件'}] `;
+            mediaFiles.push({
+              downloadCode: part.downloadCode,
+              fileName: part.fileName,
+              type: 'file',
+            });
+            console.log(`[DEBUG] File added to mediaFiles, count now: ${mediaFiles.length}`);
+          } else {
+            console.log(`[DEBUG] File component has no downloadCode`);
+          }
+          break;
+
+        case 'link':
+          console.log(`[DEBUG] Processing link component, url: "${part.url}", text: "${part.text}"`);
+          if (part.url) {
+            text += part.text ? `[${part.text}](${part.url}) ` : `[链接](${part.url}) `;
+            console.log(`[DEBUG] Link appended, current text: "${text}"`);
+          }
+          break;
+
+        default:
+          // 如果是未知类型但有 text 字段，当作文本处理
+          if (part.text) {
+            console.log(`[DEBUG] Unknown type "${partType as string}" but has text, treating as text`);
+            text += part.text;
+          } else {
+            console.log(`[DEBUG] Unknown component type: ${partType as string}, skipping`);
+          }
+          break;
+      }
     }
-    return { text: text.trim() || '[富文本消息]', messageType: 'richText' };
+
+    console.log(`[DEBUG] Finished processing all parts`);
+    console.log(`[DEBUG] Component counts: ${JSON.stringify(componentCounts)}`);
+    console.log(`[DEBUG] Final text: "${text}"`);
+    console.log(`[DEBUG] Total media files: ${mediaFiles.length}`);
+    console.log(`[DEBUG] Media files: ${JSON.stringify(mediaFiles, null, 2)}`);
+
+    const result = {
+      text: text.trim() || '[富文本消息]',
+      messageType: 'richText' as const,
+      mediaPath: mediaFiles[0]?.downloadCode,
+      mediaType: mediaFiles[0]?.type,
+      richTextParts,
+      mediaFiles,
+    };
+
+    console.log(`[DEBUG] Returning result:`, JSON.stringify(result, null, 2));
+    return result;
   }
 
   if (msgtype === 'picture') {
@@ -955,14 +1314,77 @@ async function sendMessage(
   }
 }
 
+// Process merged messages from cache
+async function processMergedMessages(
+  cacheKey: string,
+  entry: MergedMessageEntry,
+  params: HandleDingTalkMessageParams
+): Promise<void> {
+  const { log } = params;
+
+  log?.info?.(`[DingTalk] Processing ${entry.messages.length} merged messages for ${cacheKey}`);
+
+  // Merge all text content
+  const mergedText = entry.messages
+    .map((m) => m.content.text)
+    .filter(Boolean)
+    .join('\n\n');
+
+  // Collect all media files from all messages
+  const allMediaFiles: RichTextMediaFile[] = [];
+  entry.messages.forEach((m) => {
+    if ('mediaFiles' in m.content && m.content.mediaFiles.length > 0) {
+      allMediaFiles.push(...m.content.mediaFiles);
+    } else if (m.content.mediaPath) {
+      allMediaFiles.push({
+        downloadCode: m.content.mediaPath,
+        fileName: m.data.content?.fileName || `media_${m.data.msgId}`,
+        type: (m.content.mediaType === 'image' ? 'image' : 'file') as 'image' | 'file',
+      });
+    }
+  });
+
+  // Deduplicate media files by downloadCode
+  const uniqueMediaFiles = Array.from(new Map(allMediaFiles.map((m) => [m.downloadCode, m])).values());
+
+  // Collect all rich text parts
+  const allRichTextParts = entry.messages.flatMap((m) => ('richTextParts' in m.content ? m.content.richTextParts : []));
+
+  log?.info?.(`[DingTalk] Merged result: ${mergedText.length} chars, ${uniqueMediaFiles.length} media files`);
+  log?.debug?.(`[DingTalk] Original message IDs: ${entry.messages.map((m) => m.data.msgId).join(', ')}`);
+
+  // Create merged content (use first message's data as base)
+  const firstMessage = entry.messages[0];
+  const mergedContent: RichTextContent = {
+    text: mergedText || '[合并消息]',
+    messageType: 'richText',
+    mediaPath: uniqueMediaFiles[0]?.downloadCode,
+    mediaType: uniqueMediaFiles[0]?.type,
+    richTextParts: allRichTextParts,
+    mediaFiles: uniqueMediaFiles,
+  };
+
+  // Update params to use merged content and first message's data
+  const mergedParams = {
+    ...params,
+    data: firstMessage.data,
+  };
+
+  // Process merged messages by calling the original handler with merged content
+  await handleDingTalkMessageOriginal(mergedParams, mergedContent);
+}
+
 // Message handler
 async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promise<void> {
-  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
-  const rt = getDingTalkRuntime();
+  const { accountId, data, log } = params;
 
-  log?.info?.(`[DingTalk] handleDingTalkMessage called - accountId: ${accountId}, msgId: ${data.msgId || 'unknown'}`);
-  log?.debug?.(`[DingTalk] handleDingTalkMessage sessionWebhook: ${sessionWebhook || 'none'}`);
-  log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data)));
+  // Wrap logger with file/line location info for better debugging
+  const wrappedLog = createLoggerWithLocation(log, 'channel.ts');
+
+  wrappedLog?.info?.(
+    `[DingTalk] handleDingTalkMessage called - accountId: ${accountId}, msgId: ${data.msgId || 'unknown'}`
+  );
+  // log?.debug?.('[DingTalk] Full Inbound Data:', JSON.stringify(maskSensitiveData(data))); // 注释掉：内容太长容易刷屏
 
   // 1. 过滤机器人自身消息
   log?.debug?.(`[DingTalk] Checking self-message - senderId: ${data.senderId}, chatbotUserId: ${data.chatbotUserId}`);
@@ -972,8 +1394,92 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   }
   log?.debug?.('[DingTalk] Message is not from robot itself');
 
+  // NEW: Message merge logic
+  const senderId = data.senderStaffId || data.senderId;
+  const cacheKey = `${accountId}:${senderId}:${data.conversationId}`;
+  const existingEntry = messageMergeCache.get(cacheKey);
+
+  if (existingEntry) {
+    // Within merge window - add to queue
+    const content = extractMessageContent(data);
+
+    existingEntry.messages.push({
+      content,
+      data,
+      timestamp: Date.now(),
+    });
+
+    log?.info?.(
+      `[DingTalk] Message ${data.msgId} added to merge queue (${existingEntry.messages.length}/${MESSAGE_MERGE_MAX_MESSAGES})`
+    );
+
+    // Check if max reached
+    if (existingEntry.messages.length >= MESSAGE_MERGE_MAX_MESSAGES) {
+      clearTimeout(existingEntry.timer);
+      log?.info?.(`[DingTalk] Max messages reached (${MESSAGE_MERGE_MAX_MESSAGES}), triggering early merge`);
+      const entryToProcess = messageMergeCache.get(cacheKey);
+      messageMergeCache.delete(cacheKey);
+      if (entryToProcess) {
+        await processMergedMessages(cacheKey, entryToProcess, params);
+      }
+    }
+    return; // Skip normal processing - will be handled by timer or max trigger
+  }
+
+  // First message in potential merge window - create entry and set timer
   const content = extractMessageContent(data);
-  log?.info?.(`[DingTalk] Message extracted - type: ${content.messageType}, hasText: ${!!content.text}`);
+
+  const entry: MergedMessageEntry = {
+    messages: [{ content, data, timestamp: Date.now() }],
+    timer: null as any,
+    accountId,
+    senderId,
+    sessionKey: '',
+    startTime: Date.now(),
+  };
+
+  // Set up timer that will fire after 2 seconds
+  entry.timer = setTimeout(async () => {
+    const cached = messageMergeCache.get(cacheKey);
+    if (cached && cached.messages.length > 0) {
+      messageMergeCache.delete(cacheKey);
+      log?.info?.(
+        `[DingTalk] Merge window expired (${MESSAGE_MERGE_WINDOW_MS}ms), processing ${cached.messages.length} merged messages`
+      );
+      await processMergedMessages(cacheKey, cached, params);
+    }
+  }, MESSAGE_MERGE_WINDOW_MS);
+
+  messageMergeCache.set(cacheKey, entry);
+  log?.info?.(`[DingTalk] Started new merge window for ${cacheKey}, timer: ${MESSAGE_MERGE_WINDOW_MS}ms`);
+
+  // Wait for timer to process all messages together
+  // Don't process this first message immediately
+  return;
+}
+
+// Continue with original handleDingTalkMessage logic for non-merged messages
+async function handleDingTalkMessageOriginal(
+  params: HandleDingTalkMessageParams,
+  preExtractedContent?: RichTextContent
+): Promise<void> {
+  const { cfg, accountId, data, sessionWebhook, log, dingtalkConfig } = params;
+  const rt = getDingTalkRuntime();
+
+  // Wrap logger with file/line location info for better debugging
+  const wrappedLog = createLoggerWithLocation(log, 'channel.ts');
+
+  // Use pre-extracted content if provided (for merged messages), otherwise extract from data
+  const content = preExtractedContent || extractMessageContent(data);
+  const isMerged = !!preExtractedContent;
+
+  if (isMerged) {
+    wrappedLog?.info?.(
+      `[DingTalk] Processing merged message - type: ${content.messageType}, hasText: ${!!content.text}`
+    );
+  } else {
+    wrappedLog?.info?.(`[DingTalk] Message extracted - type: ${content.messageType}, hasText: ${!!content.text}`);
+  }
   log?.debug?.(`[DingTalk] Message content: "${content.text?.slice(0, 100)}..."`);
 
   if (!content.text) {
@@ -1034,29 +1540,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     }
   }
 
-  // 3. Handle media files
-  let mediaPath: string | undefined;
-  let mediaType: string | undefined;
-  if (content.mediaPath && dingtalkConfig.robotCode) {
-    log?.info?.(
-      `[DingTalk] Received media message - downloadCode: ${content.mediaPath}, messageType: ${content.messageType}`
-    );
-    log?.debug?.(`[DingTalk] Downloading media with robotCode: ${dingtalkConfig.robotCode}`);
-    const media = await downloadMedia(dingtalkConfig, content.mediaPath, log);
-    if (media) {
-      mediaPath = media.path;
-      mediaType = media.mimeType;
-      log?.info?.(`[DingTalk] Media downloaded successfully - path: ${mediaPath}, mimeType: ${mediaType}`);
-    } else {
-      log?.warn?.(`[DingTalk] Failed to download media - downloadCode: ${content.mediaPath}`);
-    }
-  } else {
-    log?.debug?.(
-      `[DingTalk] No media to download - hasMediaPath: ${!!content.mediaPath}, hasRobotCode: ${!!dingtalkConfig.robotCode}`
-    );
-  }
-
-  // 4. Resolve agent route
+  // 3. Resolve agent route (moved before media handling to get sessionKey)
   log?.info?.('[DingTalk] Resolving agent route...');
   const route = rt.channel.routing.resolveAgentRoute({
     cfg,
@@ -1068,7 +1552,127 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
   log?.debug?.(`[DingTalk] Route details - mainSessionKey: ${route.mainSessionKey}`);
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
-  log?.debug?.(`[DingTalk] Session store path: ${storePath}`);
+  log?.info?.(`[DingTalk] Session store path: ${storePath}`);
+
+  // 4. Handle media files (now has access to sessionKey and storePath)
+  let mediaFile: SessionMediaFile | undefined;
+  let mediaType: string | undefined;
+  let mediaPath: string | undefined;
+  const downloadedMediaFiles: SessionMediaFile[] = [];
+
+  // 检查是否是富文本消息且包含多个媒体文件
+  if (content.messageType === 'richText' && 'mediaFiles' in content) {
+    const richTextContent = content as RichTextContent;
+
+    // DEBUG: Log media files details
+    log?.info?.(`[DingTalk] [DEBUG] Media processing - messageType: ${content.messageType}`);
+    log?.info?.(`[DingTalk] [DEBUG] mediaFiles array length: ${richTextContent.mediaFiles?.length || 0}`);
+    log?.info?.(
+      `[DingTalk] [DEBUG] mediaFiles content: ${JSON.stringify(richTextContent.mediaFiles?.map((m) => ({ type: m.type, fileName: m.fileName, downloadCode: m.downloadCode?.substring(0, 20) + '...' })))}`
+    );
+
+    if (richTextContent.mediaFiles.length > 0) {
+      log?.info?.(`[DingTalk] RichText contains ${richTextContent.mediaFiles.length} media file(s)`);
+
+      // 获取会话超时时间（从配置读取，默认1小时）
+      const sessionTimeout = cfg.session?.timeout || 3600000;
+
+      log?.info?.(`[DingTalk] [DEBUG] Starting batch download of ${richTextContent.mediaFiles.length} files`);
+      log?.info?.(`[DingTalk] [DEBUG] Session timeout: ${sessionTimeout}ms, Store path: ${storePath}`);
+
+      // 批量下载所有媒体文件
+      for (let i = 0; i < richTextContent.mediaFiles.length; i++) {
+        const mediaFileInfo = richTextContent.mediaFiles[i];
+        log?.info?.(
+          `[DingTalk] Downloading media file ${i + 1}/${richTextContent.mediaFiles.length}: ${mediaFileInfo.fileName || 'unnamed'}`
+        );
+
+        log?.info?.(
+          `[DingTalk] [DEBUG] File ${i + 1} details - type: ${mediaFileInfo.type || 'unknown'}, downloadCode length: ${mediaFileInfo.downloadCode?.length || 0}`
+        );
+
+        const downloadedMedia = await downloadMedia(
+          dingtalkConfig,
+          mediaFileInfo.downloadCode,
+          route.sessionKey,
+          storePath,
+          mediaFileInfo.fileName || `media_${data.msgId}_${i}_${Date.now()}`,
+          data.msgId,
+          log
+        );
+
+        if (downloadedMedia) {
+          // 更新过期时间（使用实际的会话超时时间）
+          downloadedMedia.expiresAt = Date.now() + sessionTimeout * 2;
+          downloadedMediaFiles.push(downloadedMedia);
+          log?.info?.(`[DingTalk] Media file ${i + 1} saved - path: ${downloadedMedia.path}`);
+        } else {
+          log?.info?.(
+            `[DingTalk] Failed to download media file ${i + 1} - downloadCode: ${mediaFileInfo.downloadCode}`
+          );
+        }
+      }
+
+      // DEBUG: Download summary
+      log?.info?.(
+        `[DingTalk] [DEBUG] Batch download completed - Total files in queue: ${richTextContent.mediaFiles.length}, Successfully downloaded: ${downloadedMediaFiles.length}, Failed: ${richTextContent.mediaFiles.length - downloadedMediaFiles.length}`
+      );
+
+      // 设置第一个文件为主要媒体文件（保持兼容）
+      if (downloadedMediaFiles.length > 0) {
+        mediaFile = downloadedMediaFiles[0];
+        mediaType = downloadedMediaFiles[0].mimeType;
+        mediaPath = downloadedMediaFiles[0].path;
+        log?.info?.(`[DingTalk] Total media files downloaded: ${downloadedMediaFiles.length}`);
+
+        // DEBUG: List all downloaded files
+        downloadedMediaFiles.forEach((mf, idx) => {
+          log?.info?.(`[DingTalk] [DEBUG] Downloaded file ${idx + 1}: ${mf.fileName} at ${mf.path}`);
+        });
+      } else {
+        log?.info?.(`[DingTalk] [DEBUG] WARNING: No media files were successfully downloaded!`);
+      }
+    }
+  } else if (content.mediaPath && dingtalkConfig.robotCode) {
+    // 处理普通媒体消息（非富文本）
+    log?.info?.(
+      `[DingTalk] Received media message - downloadCode: ${content.mediaPath}, messageType: ${content.messageType}`
+    );
+
+    // 从消息数据中获取原始文件名（如果是文件类型消息）
+    const originalFileName = data.content?.fileName || `media_${data.msgId}_${Date.now()}`;
+
+    // 获取会话超时时间（从配置读取，默认1小时）
+    const sessionTimeout = cfg.session?.timeout || 3600000;
+
+    const downloadedMedia = await downloadMedia(
+      dingtalkConfig,
+      content.mediaPath,
+      route.sessionKey,
+      storePath,
+      originalFileName,
+      data.msgId,
+      log
+    );
+
+    if (downloadedMedia) {
+      // 更新过期时间（使用实际的会话超时时间）
+      downloadedMedia.expiresAt = Date.now() + sessionTimeout * 2;
+      mediaFile = downloadedMedia;
+      mediaType = downloadedMedia.mimeType;
+      mediaPath = downloadedMedia.path;
+      downloadedMediaFiles.push(downloadedMedia);
+      log?.info?.(
+        `[DingTalk] Media saved to session storage - path: ${mediaFile.path}, expiresAt: ${new Date(mediaFile.expiresAt).toISOString()}`
+      );
+    } else {
+      log?.info?.(`[DingTalk] Failed to download media - downloadCode: ${content.mediaPath}`);
+    }
+  } else {
+    log?.info?.(
+      `[DingTalk] No media to download - hasMediaPath: ${!!content.mediaPath}, hasRobotCode: ${!!dingtalkConfig.robotCode}`
+    );
+  }
 
   const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
   log?.debug?.(`[DingTalk] Envelope options: ${JSON.stringify(envelopeOptions)}`);
@@ -1097,7 +1701,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
 
   // 6. Finalize context
   log?.info?.('[DingTalk] Finalizing inbound context...');
-  const ctx = rt.channel.reply.finalizeInboundContext({
+
+  // 构建基础上下文
+  const contextData: any = {
     Body: body,
     RawBody: content.text,
     CommandBody: content.text,
@@ -1120,7 +1726,22 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: 'dingtalk',
     OriginatingTo: to,
-  });
+  };
+
+  // 如果是富文本消息，添加富文本组件信息
+  if (content.messageType === 'richText' && 'richTextParts' in content) {
+    contextData.RichTextParts = content.richTextParts;
+    contextData.MediaFiles = downloadedMediaFiles.map((mf) => ({
+      path: mf.path,
+      mimeType: mf.mimeType,
+      fileName: mf.fileName,
+    }));
+    log?.info?.(
+      `[DingTalk] Added richText info to context - parts: ${contextData.RichTextParts.length}, media files: ${contextData.MediaFiles.length}`
+    );
+  }
+
+  const ctx = rt.channel.reply.finalizeInboundContext(contextData);
   log?.info?.(`[DingTalk] Inbound context finalized - SessionKey: ${ctx.SessionKey}`);
 
   // 7. Record session
@@ -1249,13 +1870,16 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     await rt.channel.reply.dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyOptions });
   } finally {
     markDispatchIdle();
-    if (mediaPath && fs.existsSync(mediaPath)) {
-      try {
-        fs.unlinkSync(mediaPath);
-      } catch (_err) {
-        // Ignore cleanup errors
-      }
+
+    // 获取会话超时时间（从配置读取，默认1小时）
+    const sessionTimeout = cfg.session?.timeout || 3600000;
+
+    // 清理当前会话的过期媒体文件
+    if (storePath && route?.sessionKey) {
+      cleanupSessionMedia(storePath, route.sessionKey, sessionTimeout, log);
     }
+
+    // 完全迁移到新机制，不再处理临时目录遗留文件
   }
 }
 

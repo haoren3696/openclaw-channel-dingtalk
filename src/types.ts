@@ -108,6 +108,42 @@ export interface MediaFile {
 }
 
 /**
+ * Session media file metadata with expiration tracking
+ */
+export interface SessionMediaFile {
+  path: string;
+  mimeType: string;
+  msgId: string;
+  fileName: string;
+  downloadedAt: number;
+  expiresAt: number;
+}
+
+/**
+ * Rich text component types
+ */
+export interface RichTextComponent {
+  type: 'text' | 'at' | 'image' | 'picture' | 'file' | 'link';
+  text?: string;
+  atName?: string;
+  atUserId?: string;
+  downloadCode?: string;
+  pictureDownloadCode?: string;
+  fileName?: string;
+  url?: string;
+  [key: string]: any;
+}
+
+/**
+ * Rich text media file information
+ */
+export interface RichTextMediaFile {
+  downloadCode: string; // 使用 downloadCode 下载媒体文件
+  fileName?: string;
+  type: 'image' | 'file';
+}
+
+/**
  * Media upload response from DingTalk API
  */
 export interface MediaUploadResponse {
@@ -151,11 +187,7 @@ export interface DingTalkInboundMessage {
     downloadCode?: string;
     fileName?: string;
     recognition?: string;
-    richText?: Array<{
-      type: string;
-      text?: string;
-      atName?: string;
-    }>;
+    richText?: RichTextComponent[];
   };
   conversationType: string;
   conversationId: string;
@@ -175,6 +207,31 @@ export interface MessageContent {
   mediaPath?: string;
   mediaType?: string;
   messageType: string;
+}
+
+/**
+ * Rich text content (extends MessageContent)
+ */
+export interface RichTextContent extends MessageContent {
+  messageType: 'richText';
+  richTextParts: RichTextComponent[];
+  mediaFiles: RichTextMediaFile[];
+}
+
+/**
+ * Merged message entry for batch processing
+ */
+export interface MergedMessageEntry {
+  messages: Array<{
+    content: MessageContent | RichTextContent;
+    data: DingTalkInboundMessage;
+    timestamp: number;
+  }>;
+  timer: NodeJS.Timeout;
+  accountId: string;
+  senderId: string;
+  sessionKey: string;
+  startTime: number;
 }
 
 /**
